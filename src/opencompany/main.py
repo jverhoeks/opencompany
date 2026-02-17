@@ -1,5 +1,6 @@
 # src/opencompany/main.py
 import asyncio
+import contextlib
 import logging
 from contextlib import asynccontextmanager
 
@@ -11,8 +12,9 @@ import opencompany.models.db  # noqa: F401
 from opencompany.agents.runner import register_tool
 from opencompany.agents.tools import ALL_TOOLS
 from opencompany.company.engine import start_event_listener
-from opencompany.company.scheduler import register_observers, start_scheduler
+from opencompany.company.scheduler import register_observers, scheduler, start_scheduler
 from opencompany.company.seed import seed_company
+from opencompany.events.bus import close_redis, init_redis
 from opencompany.gateway.api import router as api_router
 from opencompany.gateway.channels.telegram import create_telegram_app
 from opencompany.gateway.dashboard import router as dashboard_router
@@ -63,6 +65,10 @@ async def lifespan(app: FastAPI):
     # Seed personas
     await seed_company()
 
+    # Initialise Redis connection pool
+    await init_redis()
+    logger.info("Redis connection pool ready")
+
     # Start scheduler for observers
     await register_observers()
     start_scheduler()
@@ -90,6 +96,18 @@ async def lifespan(app: FastAPI):
         await telegram_app.updater.stop()
         await telegram_app.stop()
         await telegram_app.shutdown()
+
+    # Graceful shutdown: scheduler, event listener, Redis
+    scheduler.shutdown(wait=True)
+    logger.info("Scheduler stopped")
+
+    _listener_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await _listener_task
+    logger.info("Event listener stopped")
+
+    await close_redis()
+    logger.info("Redis closed")
 
     await engine.dispose()
 
