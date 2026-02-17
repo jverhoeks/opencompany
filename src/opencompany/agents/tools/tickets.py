@@ -8,6 +8,7 @@ def create_ticket(
     priority: str = "medium",
     tags: str = "",
     context: str = "",
+    created_by: str = "agent",
 ) -> str:
     """Create a new ticket on the task board.
 
@@ -17,6 +18,7 @@ def create_ticket(
         priority: One of: critical, high, medium, low
         tags: Comma-separated tags (e.g. "security,backend")
         context: Relevant file paths, code snippets, or references
+        created_by: Your persona ID (e.g. "ceo", "cto")
     """
     from opencompany.company.taskboard import create_ticket_sync
 
@@ -29,7 +31,7 @@ def create_ticket(
         priority=priority,
         tags=tag_list,
         context=context_dict,
-        created_by="agent",
+        created_by=created_by,
     )
     return f"Ticket #{ticket_id} created: {title} [{priority}]"
 

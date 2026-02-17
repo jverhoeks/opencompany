@@ -3,9 +3,10 @@
 import asyncio
 import json
 import logging
+import mimetypes
 from pathlib import Path
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +20,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+WORKSPACE_DIR = Path("workspaces").resolve()
 
 
 async def _get_overview_data(session: AsyncSession) -> dict:
@@ -32,7 +34,7 @@ async def _get_overview_data(session: AsyncSession) -> dict:
     )
     counts: dict[str, int] = dict(count_result.all())
 
-    # SQL-level workload per persona instead of Python-side loop
+    # SQL-level workload per persona (active tasks)
     workload_result = await session.execute(
         select(Ticket.assigned_to, func.count(Ticket.id))
         .where(Ticket.assigned_to.isnot(None))
@@ -40,6 +42,29 @@ async def _get_overview_data(session: AsyncSession) -> dict:
         .group_by(Ticket.assigned_to)
     )
     workloads: dict[str, int] = dict(workload_result.all())
+
+    # Per-persona: tickets created
+    created_result = await session.execute(
+        select(Ticket.created_by, func.count(Ticket.id))
+        .where(Ticket.created_by.isnot(None))
+        .group_by(Ticket.created_by)
+    )
+    created_counts: dict[str, int] = dict(created_result.all())
+
+    # Per-persona: tickets completed (done)
+    done_result = await session.execute(
+        select(Ticket.assigned_to, func.count(Ticket.id))
+        .where(Ticket.assigned_to.isnot(None))
+        .where(Ticket.status == "done")
+        .group_by(Ticket.assigned_to)
+    )
+    done_counts: dict[str, int] = dict(done_result.all())
+
+    # Per-persona: total work_log actions
+    action_result = await session.execute(
+        select(WorkLog.persona_id, func.count(WorkLog.id)).group_by(WorkLog.persona_id)
+    )
+    action_counts: dict[str, int] = dict(action_result.all())
 
     # Limit tickets to most recent 200
     ticket_result = await session.execute(
@@ -61,6 +86,9 @@ async def _get_overview_data(session: AsyncSession) -> dict:
                 "type": p.type,
                 "skills": p.skills,
                 "workload": workloads.get(p.id, 0),
+                "created": created_counts.get(p.id, 0),
+                "done": done_counts.get(p.id, 0),
+                "actions": action_counts.get(p.id, 0),
             }
             for p in personas
         ],
@@ -101,6 +129,18 @@ async def serve_dashboard():
 @router.get("/api/dashboard/overview", dependencies=[Depends(verify_api_key)])
 async def dashboard_overview(session: AsyncSession = Depends(get_session)):
     return await _get_overview_data(session)
+
+
+@router.get("/workspace/{file_path:path}")
+async def serve_workspace_file(file_path: str):
+    """Serve files from the workspace (team deliverables)."""
+    full = (WORKSPACE_DIR / file_path).resolve()
+    if not str(full).startswith(str(WORKSPACE_DIR)):
+        raise HTTPException(status_code=403, detail="Access denied")
+    if not full.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    media_type = mimetypes.guess_type(str(full))[0] or "application/octet-stream"
+    return FileResponse(full, media_type=media_type)
 
 
 @router.get("/api/dashboard/stream")

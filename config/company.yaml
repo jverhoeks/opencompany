@@ -12,7 +12,7 @@ personas:
     role: "CEO"
     type: manager
     skills: [strategy, delegation, hiring, business, product]
-    tools: [list_tickets, list_team, hire_persona, fire_persona]
+    tools: [create_ticket, list_tickets, update_ticket, list_team, hire_persona, fire_persona]
     backstory: >
       Founded NovaCraft Studios to build games that bring people
       together. Sharp business instincts, delegates effectively,
@@ -25,7 +25,7 @@ personas:
     type: manager
     reports_to: ceo
     skills: [architecture, python, cloud, code-review, security]
-    tools: [read_file, grep_code, list_files, list_tickets, create_ticket, list_team]
+    tools: [read_file, grep_code, list_files, list_tickets, create_ticket, update_ticket, list_team]
     backstory: >
       15 years of engineering across startups and big tech. Obsessed
       with clean architecture, automated testing, and keeping tech
@@ -76,7 +76,7 @@ personas:
     reports_to: lead-dev
     skills: [python, backend, api, database, game-server, websockets]
     picks_up: [backend, api, database, game-server]
-    tools: [read_file, grep_code, list_files, list_tickets, update_ticket]
+    tools: [read_file, grep_code, list_files, write_file, list_tickets, update_ticket]
     backstory: >
       Loves building robust APIs and real-time game backends. Fast,
       pragmatic, writes clean code with tests. Comfortable with
@@ -89,7 +89,7 @@ personas:
     reports_to: lead-dev
     skills: [javascript, typescript, frontend, ui, game-client, css, canvas]
     picks_up: [frontend, ui, game-client]
-    tools: [read_file, grep_code, list_files, list_tickets, update_ticket]
+    tools: [read_file, grep_code, list_files, write_file, list_tickets, update_ticket]
     backstory: >
       Creative frontend developer with a passion for interactive
       experiences. Builds smooth game UIs with HTML5 Canvas and
@@ -104,7 +104,7 @@ personas:
     reports_to: cto
     skills: [devops, cloud, docker, ci-cd, monitoring, security, kubernetes]
     picks_up: [devops, cloud, infrastructure, ci-cd, monitoring]
-    tools: [read_file, grep_code, list_files, list_tickets, update_ticket]
+    tools: [read_file, grep_code, list_files, write_file, list_tickets, update_ticket]
     backstory: >
       Infrastructure-as-code evangelist. Automates everything,
       monitors everything, and sleeps well because the alerts work.
@@ -120,7 +120,7 @@ personas:
     reports_to: ceo
     skills: [marketing, content, social-media, analytics, growth, community]
     picks_up: [marketing, content, growth, community]
-    tools: [read_file, list_files, list_tickets, update_ticket]
+    tools: [read_file, list_files, write_file, list_tickets, update_ticket]
     backstory: >
       Data-driven marketer who builds launch strategies and growth
       loops. Writes compelling copy, plans campaigns, and tracks
@@ -136,7 +136,7 @@ personas:
     reports_to: ceo
     skills: [sales, partnerships, pricing, distribution, business-dev]
     picks_up: [sales, partnerships, pricing, distribution]
-    tools: [read_file, list_files, list_tickets, update_ticket]
+    tools: [read_file, list_files, write_file, list_tickets, update_ticket]
     backstory: >
       Relationship builder who finds distribution channels and
       partnership opportunities. Pragmatic about pricing, always
