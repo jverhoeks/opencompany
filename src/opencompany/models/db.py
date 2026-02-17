@@ -1,0 +1,99 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime
+
+from sqlalchemy import DateTime, ForeignKey
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, mapped_column
+
+from opencompany.models.base import Base
+
+
+class Persona(Base):
+    __tablename__ = "personas"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    name: Mapped[str]
+    role: Mapped[str]
+    type: Mapped[str]  # observer | solver | reviewer | manager
+    reports_to: Mapped[str | None] = mapped_column(ForeignKey("personas.id"), default=None)
+    skills: Mapped[list] = mapped_column(JSONB, default_factory=list)
+    watches: Mapped[list] = mapped_column(JSONB, default_factory=list)
+    picks_up: Mapped[list] = mapped_column(JSONB, default_factory=list)
+    tools: Mapped[list] = mapped_column(JSONB, default_factory=list)
+    model_id: Mapped[str | None] = mapped_column(default=None)
+    backstory: Mapped[str] = mapped_column(default="")
+    status: Mapped[str] = mapped_column(default="active")
+    created_by: Mapped[str | None] = mapped_column(default=None)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default_factory=lambda: datetime.now(UTC),
+    )
+
+
+class Ticket(Base):
+    __tablename__ = "tickets"
+
+    id: Mapped[int] = mapped_column(primary_key=True, init=False, autoincrement=True)
+    title: Mapped[str]
+    description: Mapped[str] = mapped_column(default="")
+    priority: Mapped[str] = mapped_column(default="medium")
+    status: Mapped[str] = mapped_column(default="open")
+    tags: Mapped[list] = mapped_column(JSONB, default_factory=list)
+    created_by: Mapped[str] = mapped_column(default="")
+    assigned_to: Mapped[str | None] = mapped_column(default=None)
+    reviewed_by: Mapped[str | None] = mapped_column(default=None)
+    context: Mapped[dict] = mapped_column(JSONB, default_factory=dict)
+    result: Mapped[str | None] = mapped_column(default=None)
+    parent_id: Mapped[int | None] = mapped_column(ForeignKey("tickets.id"), default=None)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default_factory=lambda: datetime.now(UTC),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default_factory=lambda: datetime.now(UTC),
+    )
+
+
+class PersonaMemory(Base):
+    __tablename__ = "persona_memory"
+
+    id: Mapped[int] = mapped_column(primary_key=True, init=False, autoincrement=True)
+    persona_id: Mapped[str] = mapped_column(ForeignKey("personas.id"))
+    type: Mapped[str]  # fact | decision | interaction | preference
+    content: Mapped[str]
+    related_to: Mapped[str | None] = mapped_column(default=None)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default_factory=lambda: datetime.now(UTC),
+    )
+
+
+class WorkLog(Base):
+    __tablename__ = "work_log"
+
+    id: Mapped[int] = mapped_column(primary_key=True, init=False, autoincrement=True)
+    persona_id: Mapped[str] = mapped_column(ForeignKey("personas.id"))
+    action: Mapped[str]  # created | picked_up | solved | reviewed | rejected
+    ticket_id: Mapped[int | None] = mapped_column(ForeignKey("tickets.id"), default=None)
+    details: Mapped[str] = mapped_column(default="")
+    duration_sec: Mapped[int | None] = mapped_column(default=None)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default_factory=lambda: datetime.now(UTC),
+    )
+
+
+class Session(Base):
+    __tablename__ = "sessions"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    channel: Mapped[str]  # telegram | slack | webhook
+    peer: Mapped[str]
+    persona_id: Mapped[str] = mapped_column(ForeignKey("personas.id"))
+    transcript_path: Mapped[str] = mapped_column(default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default_factory=lambda: datetime.now(UTC),
+    )

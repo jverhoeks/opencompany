@@ -1,0 +1,87 @@
+"""Persona management: CRUD, org chart, sync wrappers for tool use."""
+
+import asyncio
+import os
+
+from sqlalchemy import select
+
+from opencompany.models.db import Persona
+from opencompany.models.engine import async_session
+
+
+async def _hire_persona(
+    persona_id: str,
+    name: str,
+    role: str,
+    persona_type: str,
+    skills: list[str],
+    backstory: str,
+    reports_to: str | None = None,
+) -> str:
+    async with async_session() as session:
+        existing = await session.get(Persona, persona_id)
+        if existing:
+            return f"Error: persona '{persona_id}' already exists"
+
+        persona = Persona(
+            id=persona_id,
+            name=name,
+            role=role,
+            type=persona_type,
+            skills=skills,
+            backstory=backstory,
+            reports_to=reports_to,
+        )
+        session.add(persona)
+        await session.commit()
+
+    workspace = os.path.join("workspaces", persona_id)
+    os.makedirs(workspace, exist_ok=True)
+
+    return f"Hired {name} as {role} (id={persona_id})"
+
+
+def hire_persona_sync(**kwargs) -> str:
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(_hire_persona(**kwargs))
+    finally:
+        loop.close()
+
+
+async def _fire_persona(persona_id: str, reason: str = "") -> str:
+    async with async_session() as session:
+        persona = await session.get(Persona, persona_id)
+        if not persona:
+            return f"Error: persona '{persona_id}' not found"
+        persona.status = "terminated"
+        await session.commit()
+        return f"Terminated {persona.name} ({persona_id}). Reason: {reason}"
+
+
+def fire_persona_sync(**kwargs) -> str:
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(_fire_persona(**kwargs))
+    finally:
+        loop.close()
+
+
+async def _list_personas(reports_to: str | None = None) -> list[dict]:
+    async with async_session() as session:
+        q = select(Persona).where(Persona.status == "active")
+        if reports_to:
+            q = q.where(Persona.reports_to == reports_to)
+        result = await session.execute(q)
+        return [
+            {"id": p.id, "name": p.name, "role": p.role, "type": p.type, "skills": p.skills}
+            for p in result.scalars().all()
+        ]
+
+
+def list_personas_sync(**kwargs) -> list[dict]:
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(_list_personas(**kwargs))
+    finally:
+        loop.close()

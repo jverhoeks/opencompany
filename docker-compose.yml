@@ -1,0 +1,31 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: opencompany
+      POSTGRES_PASSWORD: opencompany
+      POSTGRES_DB: opencompany
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file: .env
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - ./workspaces:/app/workspaces
+      - ./config:/app/config
+
+volumes:
+  pgdata:
