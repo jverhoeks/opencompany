@@ -1,25 +1,12 @@
 """Persona management: CRUD, org chart, sync wrappers for tool use."""
 
-import asyncio
 import os
 
 from sqlalchemy import select
 
 from opencompany.models.db import Persona
-from opencompany.models.engine import async_session, get_main_loop
-
-
-def _run_async(coro):
-    """Run an async coroutine from a sync context (e.g. agent tools running in threads)."""
-    loop = get_main_loop()
-    if loop and loop.is_running():
-        future = asyncio.run_coroutine_threadsafe(coro, loop)
-        return future.result(timeout=60)
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+from opencompany.models.engine import async_session
+from opencompany.utils import _run_async
 
 
 async def _hire_persona(

@@ -26,19 +26,24 @@ def get_model(model_id: str | None = None) -> LiteLLMModel:
     )
 
 
-def create_agent(persona: Persona, extra_tools: list | None = None) -> Agent:
-    tools = []
+def create_agent(
+    persona: Persona,
+    extra_tools: list | None = None,
+    tools: dict | None = None,
+) -> Agent:
+    registry = tools if tools is not None else _TOOL_REGISTRY
+    resolved_tools = []
     for tool_name in persona.tools:
-        if tool_name in _TOOL_REGISTRY:
-            tools.append(_TOOL_REGISTRY[tool_name])
+        if tool_name in registry:
+            resolved_tools.append(registry[tool_name])
 
     if extra_tools:
-        tools.extend(extra_tools)
+        resolved_tools.extend(extra_tools)
 
     return Agent(
         model=get_model(persona.model_id),
         system_prompt=build_system_prompt(persona),
-        tools=tools,
+        tools=resolved_tools,
         name=persona.name,
         description=f"{persona.role} ({persona.type})",
     )

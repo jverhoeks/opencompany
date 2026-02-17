@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 from collections.abc import Callable
@@ -7,13 +8,15 @@ import redis.asyncio as redis
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 
 _redis: redis.Redis | None = None
+_redis_lock = asyncio.Lock()
 
 
 async def get_redis() -> redis.Redis:
     global _redis
-    if _redis is None:
-        _redis = redis.from_url(REDIS_URL, decode_responses=True)
-    return _redis
+    async with _redis_lock:
+        if _redis is None:
+            _redis = redis.from_url(REDIS_URL, decode_responses=True)
+        return _redis
 
 
 async def publish(event_type: str, data: dict):

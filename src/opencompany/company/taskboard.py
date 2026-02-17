@@ -1,25 +1,10 @@
 """Task board: ticket lifecycle, auto-assignment, sync wrappers for tool use."""
 
-import asyncio
-
 from sqlalchemy import select
 
 from opencompany.models.db import Ticket
-from opencompany.models.engine import async_session, get_main_loop
-
-
-def _run_async(coro):
-    """Run an async coroutine from a sync context (e.g. agent tools running in threads)."""
-    loop = get_main_loop()
-    if loop and loop.is_running():
-        future = asyncio.run_coroutine_threadsafe(coro, loop)
-        return future.result(timeout=60)
-    # Fallback for non-threaded contexts (e.g. tests)
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+from opencompany.models.engine import async_session
+from opencompany.utils import _run_async
 
 
 def find_best_solver(tags: list[str], solvers: list[dict]) -> dict | None:
