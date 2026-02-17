@@ -48,8 +48,14 @@ class PersonaOut(BaseModel):
 
 
 @router.get("/personas", response_model=list[PersonaOut])
-async def api_list_personas(session: AsyncSession = Depends(get_session)):
-    result = await session.execute(select(Persona).where(Persona.status == "active"))
+async def api_list_personas(
+    skip: int = 0,
+    limit: int = 50,
+    session: AsyncSession = Depends(get_session),
+):
+    result = await session.execute(
+        select(Persona).where(Persona.status == "active").offset(skip).limit(limit)
+    )
     return result.scalars().all()
 
 
