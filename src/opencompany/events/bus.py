@@ -1,8 +1,11 @@
 import json
+import logging
 import os
 from collections.abc import Callable
 
 import redis.asyncio as redis
+
+logger = logging.getLogger(__name__)
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 
@@ -21,6 +24,7 @@ async def publish(event_type: str, data: dict):
     r = await get_redis()
     payload = json.dumps({"type": event_type, "data": data})
     await r.publish("opencompany:events", payload)
+    logger.debug("Published event %s", event_type)
 
 
 async def subscribe(callback: Callable):
@@ -28,8 +32,10 @@ async def subscribe(callback: Callable):
     r = await get_redis()
     pubsub = r.pubsub()
     await pubsub.subscribe("opencompany:events")
+    logger.info("Subscribed to event bus")
 
     async for message in pubsub.listen():
         if message["type"] == "message":
             payload = json.loads(message["data"])
+            logger.debug("Received event %s", payload["type"])
             await callback(payload["type"], payload["data"])

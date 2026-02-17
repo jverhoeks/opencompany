@@ -17,11 +17,22 @@ from opencompany.models.engine import async_session
 logger = logging.getLogger(__name__)
 
 
+DEFAULT_PERSONA_ID = os.environ.get("DEFAULT_PERSONA_ID", "ceo")
+
+
 async def _resolve_persona(channel: str, chat_type: str, peer: str) -> Persona | None:
-    """Resolve which persona handles this message based on bindings."""
-    # Default to CEO for all messages for now
+    """Resolve which persona handles this message based on bindings.
+
+    TODO: Read bindings from company config and match on channel/chat_type/peer
+    instead of falling back to a single default persona.
+    """
     async with async_session() as session:
-        persona = await session.get(Persona, "ceo")
+        persona = await session.get(Persona, DEFAULT_PERSONA_ID)
+        if not persona:
+            logger.warning(
+                "Default persona %r not found, falling back to None",
+                DEFAULT_PERSONA_ID,
+            )
         return persona
 
 
@@ -47,7 +58,7 @@ async def _handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for i in range(0, len(result), 4000):
             await update.message.reply_text(result[i : i + 4000])
     except Exception as e:
-        logger.error(f"Error: {e}")
+        logger.error("Error handling Telegram message: %s", e)
         await update.message.reply_text(f"Error: {str(e)[:200]}")
 
 

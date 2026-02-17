@@ -1,5 +1,6 @@
 """Dashboard API: aggregated overview + serve the control tower UI."""
 
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Depends
@@ -9,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from opencompany.models.db import Persona, Ticket, WorkLog
 from opencompany.models.engine import get_session
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -73,12 +76,12 @@ async def dashboard_overview(session: AsyncSession = Depends(get_session)):
         "status_counts": counts,
         "work_log": [
             {
-                "persona_id": l.persona_id,
-                "action": l.action,
-                "ticket_id": l.ticket_id,
-                "details": l.details,
-                "created_at": l.created_at.isoformat() if l.created_at else None,
+                "persona_id": entry.persona_id,
+                "action": entry.action,
+                "ticket_id": entry.ticket_id,
+                "details": entry.details,
+                "created_at": entry.created_at.isoformat() if entry.created_at else None,
             }
-            for l in logs
+            for entry in logs
         ],
     }

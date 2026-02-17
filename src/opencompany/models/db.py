@@ -53,9 +53,12 @@ class Ticket(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default_factory=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
     )
 
 
+# TODO: PersonaMemory is used by the agent memory subsystem but has no
+# read/write paths wired up yet. Wire up or remove once agents land.
 class PersonaMemory(Base):
     __tablename__ = "persona_memory"
 
@@ -79,20 +82,6 @@ class WorkLog(Base):
     ticket_id: Mapped[int | None] = mapped_column(ForeignKey("tickets.id"), default=None)
     details: Mapped[str] = mapped_column(default="")
     duration_sec: Mapped[int | None] = mapped_column(default=None)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default_factory=lambda: datetime.now(UTC),
-    )
-
-
-class Session(Base):
-    __tablename__ = "sessions"
-
-    id: Mapped[str] = mapped_column(primary_key=True)
-    channel: Mapped[str]  # telegram | slack | webhook
-    peer: Mapped[str]
-    persona_id: Mapped[str] = mapped_column(ForeignKey("personas.id"))
-    transcript_path: Mapped[str] = mapped_column(default="")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default_factory=lambda: datetime.now(UTC),

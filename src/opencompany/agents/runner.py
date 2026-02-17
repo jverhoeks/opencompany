@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 
 from strands import Agent
@@ -6,6 +7,8 @@ from strands.models.litellm import LiteLLMModel
 
 from opencompany.agents.prompts import build_system_prompt
 from opencompany.models.db import Persona
+
+logger = logging.getLogger(__name__)
 
 # Tool registry — maps tool names to actual tool functions
 _TOOL_REGISTRY: dict = {}
@@ -35,6 +38,7 @@ def create_agent(persona: Persona, extra_tools: list | None = None) -> Agent:
     if extra_tools:
         tools.extend(extra_tools)
 
+    logger.info("Created agent for persona %s with %d tools", persona.id, len(tools))
     return Agent(
         model=get_model(persona.model_id),
         system_prompt=build_system_prompt(persona),
@@ -45,6 +49,8 @@ def create_agent(persona: Persona, extra_tools: list | None = None) -> Agent:
 
 
 async def run_persona(persona: Persona, task: str) -> str:
+    logger.info("Running persona %s on task: %.80s", persona.id, task)
     agent = create_agent(persona)
     result = await asyncio.to_thread(agent, task)
+    logger.info("Persona %s finished task", persona.id)
     return str(result)

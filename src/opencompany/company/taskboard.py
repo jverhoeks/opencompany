@@ -1,11 +1,14 @@
 """Task board: ticket lifecycle, auto-assignment, sync wrappers for tool use."""
 
 import asyncio
+import logging
 
 from sqlalchemy import select
 
 from opencompany.models.db import Ticket
 from opencompany.models.engine import async_session, get_main_loop
+
+logger = logging.getLogger(__name__)
 
 
 def _run_async(coro):
@@ -58,6 +61,13 @@ async def _create_ticket(
         session.add(ticket)
         await session.commit()
         await session.refresh(ticket)
+        logger.info(
+            "Created ticket %d: %s (priority=%s, by=%s)",
+            ticket.id,
+            title,
+            priority,
+            created_by,
+        )
         return ticket.id
 
 
@@ -73,6 +83,7 @@ async def _list_tickets(status: str, tags: list) -> list[dict]:
         tickets = result.scalars().all()
         if tags:
             tickets = [t for t in tickets if set(tags) & set(t.tags)]
+        logger.debug("Listed %d tickets (status=%s, tags=%s)", len(tickets), status, tags)
         return [
             {
                 "id": t.id,
@@ -93,12 +104,14 @@ async def _update_ticket(ticket_id: int, status: str | None = None, result: str 
     async with async_session() as session:
         ticket = await session.get(Ticket, ticket_id)
         if not ticket:
+            logger.warning("Update failed: ticket %d not found", ticket_id)
             return
         if status:
             ticket.status = status
         if result:
             ticket.result = result
         await session.commit()
+        logger.info("Updated ticket %d (status=%s)", ticket_id, status)
 
 
 def update_ticket_sync(**kwargs):

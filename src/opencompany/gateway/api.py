@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -6,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from opencompany.agents.runner import run_persona
 from opencompany.models.db import Persona, Ticket
 from opencompany.models.engine import get_session
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -34,6 +38,7 @@ async def api_list_personas(session: AsyncSession = Depends(get_session)):
 async def api_get_persona(persona_id: str, session: AsyncSession = Depends(get_session)):
     persona = await session.get(Persona, persona_id)
     if not persona:
+        logger.warning("Persona %r not found", persona_id)
         raise HTTPException(status_code=404, detail="Persona not found")
     return persona
 
@@ -99,7 +104,9 @@ class ChatResponse(BaseModel):
 async def api_chat(body: ChatRequest, session: AsyncSession = Depends(get_session)):
     persona = await session.get(Persona, body.persona_id)
     if not persona:
+        logger.warning("Chat: persona %r not found", body.persona_id)
         raise HTTPException(status_code=404, detail="Persona not found")
 
+    logger.info("Chat request to persona %s", body.persona_id)
     result = await run_persona(persona, body.message)
     return ChatResponse(response=result)
