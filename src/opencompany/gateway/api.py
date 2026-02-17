@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from opencompany.agents.runner import run_persona
+from opencompany.events.bus import publish
 from opencompany.models.db import Persona, Ticket
 from opencompany.models.engine import get_session
 
@@ -80,6 +81,7 @@ async def api_create_ticket(body: TicketCreate, session: AsyncSession = Depends(
     session.add(ticket)
     await session.commit()
     await session.refresh(ticket)
+    await publish("ticket.created", {"ticket_id": ticket.id})
     return ticket
 
 
