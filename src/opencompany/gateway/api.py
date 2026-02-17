@@ -25,8 +25,14 @@ class PersonaOut(BaseModel):
 
 
 @router.get("/personas", response_model=list[PersonaOut])
-async def api_list_personas(session: AsyncSession = Depends(get_session)):
-    result = await session.execute(select(Persona).where(Persona.status == "active"))
+async def api_list_personas(
+    skip: int = 0,
+    limit: int = 50,
+    session: AsyncSession = Depends(get_session),
+):
+    result = await session.execute(
+        select(Persona).where(Persona.status == "active").offset(skip).limit(limit)
+    )
     return result.scalars().all()
 
 
@@ -62,8 +68,15 @@ class TicketCreate(BaseModel):
 
 
 @router.get("/tickets", response_model=list[TicketOut])
-async def api_list_tickets(status: str = "open", session: AsyncSession = Depends(get_session)):
-    result = await session.execute(select(Ticket).where(Ticket.status == status))
+async def api_list_tickets(
+    status: str = "open",
+    skip: int = 0,
+    limit: int = 50,
+    session: AsyncSession = Depends(get_session),
+):
+    result = await session.execute(
+        select(Ticket).where(Ticket.status == status).offset(skip).limit(limit)
+    )
     return result.scalars().all()
 
 

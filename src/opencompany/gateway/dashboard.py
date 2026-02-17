@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from opencompany.models.db import Persona, Ticket, WorkLog
@@ -21,22 +21,30 @@ async def serve_dashboard():
 
 
 @router.get("/api/dashboard/overview")
-async def dashboard_overview(session: AsyncSession = Depends(get_session)):
+async def dashboard_overview(session: AsyncSession = Depends(get_session)):  # noqa: B008
     persona_result = await session.execute(select(Persona).where(Persona.status == "active"))
     personas = persona_result.scalars().all()
 
-    ticket_result = await session.execute(select(Ticket))
+    # SQL-level status counts instead of Python-side loop
+    count_result = await session.execute(
+        select(Ticket.status, func.count(Ticket.id)).group_by(Ticket.status)
+    )
+    counts: dict[str, int] = dict(count_result.all())
+
+    # SQL-level workload per persona instead of Python-side loop
+    workload_result = await session.execute(
+        select(Ticket.assigned_to, func.count(Ticket.id))
+        .where(Ticket.assigned_to.isnot(None))
+        .where(Ticket.status.in_(["assigned", "in_progress"]))
+        .group_by(Ticket.assigned_to)
+    )
+    workloads: dict[str, int] = dict(workload_result.all())
+
+    # Limit tickets to most recent 200
+    ticket_result = await session.execute(
+        select(Ticket).order_by(Ticket.created_at.desc()).limit(200)
+    )
     tickets = ticket_result.scalars().all()
-
-    # Workload: count of active tickets per persona
-    workloads: dict[str, int] = {}
-    for t in tickets:
-        if t.assigned_to and t.status in ("assigned", "in_progress"):
-            workloads[t.assigned_to] = workloads.get(t.assigned_to, 0) + 1
-
-    counts: dict[str, int] = {}
-    for t in tickets:
-        counts[t.status] = counts.get(t.status, 0) + 1
 
     log_result = await session.execute(
         select(WorkLog).order_by(WorkLog.created_at.desc()).limit(50)
@@ -73,12 +81,12 @@ async def dashboard_overview(session: AsyncSession = Depends(get_session)):
         "status_counts": counts,
         "work_log": [
             {
-                "persona_id": l.persona_id,
-                "action": l.action,
-                "ticket_id": l.ticket_id,
-                "details": l.details,
-                "created_at": l.created_at.isoformat() if l.created_at else None,
+                "persona_id": entry.persona_id,
+                "action": entry.action,
+                "ticket_id": entry.ticket_id,
+                "details": entry.details,
+                "created_at": entry.created_at.isoformat() if entry.created_at else None,
             }
-            for l in logs
+            for entry in logs
         ],
     }
