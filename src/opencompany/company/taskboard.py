@@ -14,19 +14,27 @@ logger = logging.getLogger(__name__)
 
 
 def find_best_solver(tags: list[str], solvers: list[dict]) -> dict | None:
-    """Find the best solver for a ticket based on skill overlap and workload."""
+    """Find the best solver for a ticket based on skill overlap and workload.
+
+    Falls back to the least busy solver if no tag match is found.
+    """
+    if not solvers:
+        return None
+
     candidates = []
     for solver in solvers:
         overlap = len(set(solver["skills"]) & set(tags))
         if overlap > 0:
             candidates.append((overlap, solver["workload"], solver))
 
-    if not candidates:
-        return None
+    if candidates:
+        # Sort by skill overlap (desc), then workload (asc)
+        candidates.sort(key=lambda x: (-x[0], x[1]))
+        return candidates[0][2]
 
-    # Sort by skill overlap (desc), then workload (asc)
-    candidates.sort(key=lambda x: (-x[0], x[1]))
-    return candidates[0][2]
+    # Fallback: assign to the least busy solver
+    logger.info("No tag match for %s, falling back to least busy solver", tags)
+    return min(solvers, key=lambda s: s["workload"])
 
 
 async def _create_ticket(

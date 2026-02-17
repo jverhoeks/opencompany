@@ -19,11 +19,17 @@ def test_find_best_solver_prefers_lower_workload():
     assert best["id"] == "dev-2"
 
 
-def test_find_best_solver_no_match():
+def test_find_best_solver_no_match_falls_back_to_least_busy():
     solvers = [
-        {"id": "dev-1", "skills": ["python"], "workload": 1},
+        {"id": "dev-1", "skills": ["python"], "workload": 3},
+        {"id": "dev-2", "skills": ["java"], "workload": 1},
     ]
     best = find_best_solver(tags=["rust"], solvers=solvers)
+    assert best["id"] == "dev-2"  # least busy gets it
+
+
+def test_find_best_solver_empty_solvers():
+    best = find_best_solver(tags=["rust"], solvers=[])
     assert best is None
 
 
