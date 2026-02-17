@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from opencompany.gateway.api import verify_api_key
 from opencompany.models.db import Persona, Ticket, WorkLog
 from opencompany.models.engine import get_session
 
@@ -20,7 +21,7 @@ async def serve_dashboard():
     return FileResponse(STATIC_DIR / "dashboard.html", media_type="text/html")
 
 
-@router.get("/api/dashboard/overview")
+@router.get("/api/dashboard/overview", dependencies=[Depends(verify_api_key)])
 async def dashboard_overview(session: AsyncSession = Depends(get_session)):
     persona_result = await session.execute(select(Persona).where(Persona.status == "active"))
     personas = persona_result.scalars().all()
@@ -73,12 +74,12 @@ async def dashboard_overview(session: AsyncSession = Depends(get_session)):
         "status_counts": counts,
         "work_log": [
             {
-                "persona_id": l.persona_id,
-                "action": l.action,
-                "ticket_id": l.ticket_id,
-                "details": l.details,
-                "created_at": l.created_at.isoformat() if l.created_at else None,
+                "persona_id": entry.persona_id,
+                "action": entry.action,
+                "ticket_id": entry.ticket_id,
+                "details": entry.details,
+                "created_at": entry.created_at.isoformat() if entry.created_at else None,
             }
-            for l in logs
+            for entry in logs
         ],
     }
