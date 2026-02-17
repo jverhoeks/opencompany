@@ -18,7 +18,6 @@ from opencompany.events.bus import close_redis, init_redis
 from opencompany.gateway.api import router as api_router
 from opencompany.gateway.channels.telegram import create_telegram_app
 from opencompany.gateway.dashboard import router as dashboard_router
-from opencompany.models.base import Base
 from opencompany.models.engine import engine, set_main_loop
 
 load_dotenv()
@@ -57,10 +56,13 @@ async def lifespan(app: FastAPI):
     # Wait for DB
     await _wait_for_db()
 
-    # Create tables
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    logger.info("Database tables ready")
+    # Run Alembic migrations
+    from alembic import command
+    from alembic.config import Config
+
+    alembic_cfg = Config("alembic.ini")
+    await asyncio.to_thread(command.upgrade, alembic_cfg, "head")
+    logger.info("Database migrations applied")
 
     # Seed personas
     await seed_company()
