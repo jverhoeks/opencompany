@@ -14,9 +14,11 @@ COPY migrations/ migrations/
 
 RUN uv sync --frozen --no-dev
 
+ENV PATH="/app/.venv/bin:$PATH"
+
 RUN adduser --disabled-password --gecos '' appuser
 USER appuser
 
 HEALTHCHECK --interval=30s --timeout=5s CMD curl -f http://localhost:8000/health || exit 1
 
-CMD ["uv", "run", "uvicorn", "opencompany.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "opencompany.main:app", "--host", "0.0.0.0", "--port", "8000"]
