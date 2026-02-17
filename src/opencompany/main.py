@@ -20,7 +20,7 @@ from opencompany.events.bus import close_redis, init_redis
 from opencompany.gateway.api import router as api_router
 from opencompany.gateway.channels.telegram import create_telegram_app
 from opencompany.gateway.dashboard import router as dashboard_router
-from opencompany.models.engine import engine, set_main_loop
+from opencompany.models.engine import engine
 
 load_dotenv()
 
@@ -47,9 +47,6 @@ async def _wait_for_db(retries: int = 20, delay: float = 1.0):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Store the main event loop for sync wrappers
-    set_main_loop(asyncio.get_running_loop())
-
     # Register all tools
     for name, func in ALL_TOOLS.items():
         register_tool(name, func)
@@ -138,7 +135,24 @@ app.include_router(dashboard_router)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    from fastapi.responses import JSONResponse
+    from sqlalchemy import text
+
+    from opencompany.events.bus import get_redis
+
+    checks = {"db": "ok", "redis": "ok"}
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+    except Exception:
+        checks["db"] = "error"
+    try:
+        r = await get_redis()
+        await r.ping()
+    except Exception:
+        checks["redis"] = "error"
+    status = "ok" if all(v == "ok" for v in checks.values()) else "degraded"
+    return JSONResponse({"status": status, **checks}, status_code=200 if status == "ok" else 503)
 
 
 def main():
