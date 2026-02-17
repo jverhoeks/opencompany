@@ -76,6 +76,9 @@ async def lifespan(app: FastAPI):
 
     # Start event listener (runs in background)
     _listener_task = asyncio.create_task(start_event_listener())
+    _listener_task.add_done_callback(
+        lambda t: logger.error("Event listener died: %s", t.exception()) if t.exception() else None
+    )
     logger.info("Event listener started")
 
     # Start Telegram bot
