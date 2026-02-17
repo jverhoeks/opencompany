@@ -1,4 +1,5 @@
 import asyncio
+import concurrent.futures
 import logging
 import os
 
@@ -12,6 +13,10 @@ logger = logging.getLogger(__name__)
 
 # Tool registry -- maps tool names to actual tool functions
 _TOOL_REGISTRY: dict = {}
+
+_executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=int(os.environ.get("AGENT_MAX_WORKERS", "10"))
+)
 
 
 def register_tool(name: str, func):
@@ -55,9 +60,10 @@ def create_agent(
 
 async def run_persona(persona: Persona, task: str) -> str:
     logger.info("Running persona %s on task: %.80s", persona.id, task)
+    loop = asyncio.get_running_loop()
     agent = create_agent(persona)
     try:
-        result = await asyncio.to_thread(agent, task)
+        result = await loop.run_in_executor(_executor, agent, task)
         logger.info("Persona %s finished task", persona.id)
         return str(result)
     except Exception as e:

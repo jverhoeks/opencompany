@@ -602,48 +602,53 @@ body::before {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
   });
 
-  // ── Poll ───────────────────────────────────────
+  // ── Data update ────────────────────────────────
   const statusDot = document.getElementById('statusDot');
   const connLabel = document.getElementById('connLabel');
   let prevStateJSON = '';
 
-  async function poll() {
-    try {
-      const res = await fetch('/api/dashboard/overview');
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const newState = await res.json();
-      const newJSON = JSON.stringify(newState);
-
-      // Skip re-render when data is unchanged
-      if (newJSON === prevStateJSON) {
-        if (!connected) {
-          connected = true;
-          statusDot.style.background = 'var(--green)';
-          connLabel.textContent = 'LIVE';
-        }
-        return;
-      }
-      prevStateJSON = newJSON;
-      state = newState;
-
-      // Build persona lookup
-      personaMap = {};
-      state.personas.forEach(p => { personaMap[p.id] = p.name; });
-
-      // Re-render
-      renderTeam();
-      renderKPIs();
-      renderBoard();
-      renderActivity();
-
-      // Update chat select only if empty
-      if (chatPersonaEl.children.length === 0) renderChatSelect();
-
+  function applyState(newState) {
+    const newJSON = JSON.stringify(newState);
+    // Skip re-render when data is unchanged
+    if (newJSON === prevStateJSON) {
       if (!connected) {
         connected = true;
         statusDot.style.background = 'var(--green)';
         connLabel.textContent = 'LIVE';
       }
+      return;
+    }
+    prevStateJSON = newJSON;
+    state = newState;
+
+    // Build persona lookup
+    personaMap = {};
+    state.personas.forEach(p => { personaMap[p.id] = p.name; });
+
+    // Re-render
+    renderTeam();
+    renderKPIs();
+    renderBoard();
+    renderActivity();
+
+    // Update chat select only if empty
+    if (chatPersonaEl.children.length === 0) renderChatSelect();
+
+    if (!connected) {
+      connected = true;
+      statusDot.style.background = 'var(--green)';
+      connLabel.textContent = 'LIVE';
+    }
+  }
+
+  // ── Poll (fallback) ──────────────────────────────
+  let pollTimer = null;
+
+  async function poll() {
+    try {
+      const res = await fetch('/api/dashboard/overview');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      applyState(await res.json());
     } catch (err) {
       connected = false;
       statusDot.style.background = 'var(--red)';
@@ -651,9 +656,37 @@ body::before {
     }
   }
 
-  // Initial load + polling (5s interval)
+  function startPolling() {
+    if (pollTimer) return;
+    pollTimer = setInterval(poll, 5000);
+    poll();
+  }
+
+  function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  // ── SSE (primary) ────────────────────────────────
+  function connectSSE() {
+    const evtSource = new EventSource('/api/dashboard/stream');
+    evtSource.onmessage = function (event) {
+      stopPolling();
+      applyState(JSON.parse(event.data));
+    };
+    evtSource.onerror = function () {
+      evtSource.close();
+      connected = false;
+      statusDot.style.background = 'var(--red)';
+      connLabel.textContent = 'OFFLINE';
+      // Fall back to polling, then retry SSE after 10s
+      startPolling();
+      setTimeout(connectSSE, 10000);
+    };
+  }
+
+  // Initial load via poll, then switch to SSE
   poll();
-  setInterval(poll, 5000);
+  connectSSE();
 })();
 </script>
 </body>

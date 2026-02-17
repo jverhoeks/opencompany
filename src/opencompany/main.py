@@ -156,4 +156,5 @@ async def health():
 
 
 def main():
-    uvicorn.run("opencompany.main:app", host="0.0.0.0", port=8000, reload=True)
+    reload = os.environ.get("OPENCOMPANY_RELOAD", "").lower() in ("1", "true")
+    uvicorn.run("opencompany.main:app", host="0.0.0.0", port=8000, reload=reload)

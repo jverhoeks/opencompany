@@ -1,10 +1,12 @@
-"""Dashboard API: aggregated overview + serve the control tower UI."""
+"""Dashboard API: aggregated overview + SSE stream + control tower UI."""
 
+import asyncio
+import json
 import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Depends
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,13 +21,8 @@ router = APIRouter()
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 
-@router.get("/dashboard")
-async def serve_dashboard():
-    return FileResponse(STATIC_DIR / "dashboard.html", media_type="text/html")
-
-
-@router.get("/api/dashboard/overview", dependencies=[Depends(verify_api_key)])
-async def dashboard_overview(session: AsyncSession = Depends(get_session)):
+async def _get_overview_data(session: AsyncSession) -> dict:
+    """Fetch aggregated dashboard data (shared by REST and SSE endpoints)."""
     persona_result = await session.execute(select(Persona).where(Persona.status == "active"))
     personas = persona_result.scalars().all()
 
@@ -94,3 +91,24 @@ async def dashboard_overview(session: AsyncSession = Depends(get_session)):
             for entry in logs
         ],
     }
+
+
+@router.get("/dashboard")
+async def serve_dashboard():
+    return FileResponse(STATIC_DIR / "dashboard.html", media_type="text/html")
+
+
+@router.get("/api/dashboard/overview", dependencies=[Depends(verify_api_key)])
+async def dashboard_overview(session: AsyncSession = Depends(get_session)):
+    return await _get_overview_data(session)
+
+
+@router.get("/api/dashboard/stream")
+async def dashboard_stream(session: AsyncSession = Depends(get_session)):
+    async def event_generator():
+        while True:
+            data = await _get_overview_data(session)
+            yield f"data: {json.dumps(data, default=str)}\n\n"
+            await asyncio.sleep(3)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
