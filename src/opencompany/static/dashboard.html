@@ -605,8 +605,20 @@ body::before {
   // ── Data update ────────────────────────────────
   const statusDot = document.getElementById('statusDot');
   const connLabel = document.getElementById('connLabel');
+  let prevStateJSON = '';
 
   function applyState(newState) {
+    const newJSON = JSON.stringify(newState);
+    // Skip re-render when data is unchanged
+    if (newJSON === prevStateJSON) {
+      if (!connected) {
+        connected = true;
+        statusDot.style.background = 'var(--green)';
+        connLabel.textContent = 'LIVE';
+      }
+      return;
+    }
+    prevStateJSON = newJSON;
     state = newState;
 
     // Build persona lookup
