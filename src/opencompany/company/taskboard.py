@@ -1,10 +1,12 @@
 """Task board: ticket lifecycle, auto-assignment, sync wrappers for tool use."""
 
 import asyncio
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 
-from opencompany.models.db import Ticket
+from opencompany.events.bus import publish
+from opencompany.models.db import Ticket, WorkLog
 from opencompany.models.engine import async_session, get_main_loop
 
 
@@ -56,8 +58,11 @@ async def _create_ticket(
             created_by=created_by,
         )
         session.add(ticket)
+        log = WorkLog(persona_id=created_by, action="created", ticket_id=ticket.id)
+        session.add(log)
         await session.commit()
         await session.refresh(ticket)
+        await publish("ticket.created", {"ticket_id": ticket.id})
         return ticket.id
 
 
@@ -96,8 +101,15 @@ async def _update_ticket(ticket_id: int, status: str | None = None, result: str 
             return
         if status:
             ticket.status = status
+            log = WorkLog(
+                persona_id=ticket.created_by or "system",
+                action=status,
+                ticket_id=ticket_id,
+            )
+            session.add(log)
         if result:
             ticket.result = result
+        ticket.updated_at = datetime.now(UTC)
         await session.commit()
 
 

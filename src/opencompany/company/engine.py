@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from opencompany.agents.runner import run_persona
 from opencompany.company.taskboard import find_best_solver
 from opencompany.events.bus import subscribe
-from opencompany.models.db import Persona, Ticket
+from opencompany.models.db import Persona, Ticket, WorkLog
 from opencompany.models.engine import async_session
 
 logger = logging.getLogger(__name__)
@@ -68,6 +68,8 @@ async def _auto_assign_ticket(ticket_id: int):
 
         ticket.assigned_to = best["id"]
         ticket.status = "assigned"
+        log = WorkLog(persona_id=best["id"], action="picked_up", ticket_id=ticket_id)
+        session.add(log)
         await session.commit()
         logger.info(f"Assigned ticket #{ticket_id} to {best['id']}")
 
