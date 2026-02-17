@@ -15,7 +15,7 @@ class Persona(Base):
     id: Mapped[str] = mapped_column(primary_key=True)
     name: Mapped[str]
     role: Mapped[str]
-    type: Mapped[str]  # observer | solver | reviewer | manager
+    type: Mapped[str] = mapped_column(index=True)  # observer | solver | reviewer | manager
     reports_to: Mapped[str | None] = mapped_column(ForeignKey("personas.id"), default=None)
     skills: Mapped[list] = mapped_column(JSONB, default_factory=list)
     watches: Mapped[list] = mapped_column(JSONB, default_factory=list)
@@ -23,7 +23,7 @@ class Persona(Base):
     tools: Mapped[list] = mapped_column(JSONB, default_factory=list)
     model_id: Mapped[str | None] = mapped_column(default=None)
     backstory: Mapped[str] = mapped_column(default="")
-    status: Mapped[str] = mapped_column(default="active")
+    status: Mapped[str] = mapped_column(default="active", index=True)
     created_by: Mapped[str | None] = mapped_column(default=None)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -38,10 +38,10 @@ class Ticket(Base):
     title: Mapped[str]
     description: Mapped[str] = mapped_column(default="")
     priority: Mapped[str] = mapped_column(default="medium")
-    status: Mapped[str] = mapped_column(default="open")
+    status: Mapped[str] = mapped_column(default="open", index=True)
     tags: Mapped[list] = mapped_column(JSONB, default_factory=list)
     created_by: Mapped[str] = mapped_column(default="")
-    assigned_to: Mapped[str | None] = mapped_column(default=None)
+    assigned_to: Mapped[str | None] = mapped_column(default=None, index=True)
     reviewed_by: Mapped[str | None] = mapped_column(default=None)
     context: Mapped[dict] = mapped_column(JSONB, default_factory=dict)
     result: Mapped[str | None] = mapped_column(default=None)
@@ -60,7 +60,7 @@ class PersonaMemory(Base):
     __tablename__ = "persona_memory"
 
     id: Mapped[int] = mapped_column(primary_key=True, init=False, autoincrement=True)
-    persona_id: Mapped[str] = mapped_column(ForeignKey("personas.id"))
+    persona_id: Mapped[str] = mapped_column(ForeignKey("personas.id"), index=True)
     type: Mapped[str]  # fact | decision | interaction | preference
     content: Mapped[str]
     related_to: Mapped[str | None] = mapped_column(default=None)
@@ -82,6 +82,7 @@ class WorkLog(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default_factory=lambda: datetime.now(UTC),
+        index=True,
     )
 
 

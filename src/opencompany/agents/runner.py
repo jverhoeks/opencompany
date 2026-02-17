@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 
 from strands import Agent
@@ -7,7 +8,9 @@ from strands.models.litellm import LiteLLMModel
 from opencompany.agents.prompts import build_system_prompt
 from opencompany.models.db import Persona
 
-# Tool registry — maps tool names to actual tool functions
+logger = logging.getLogger(__name__)
+
+# Tool registry -- maps tool names to actual tool functions
 _TOOL_REGISTRY: dict = {}
 
 
@@ -51,5 +54,9 @@ def create_agent(
 
 async def run_persona(persona: Persona, task: str) -> str:
     agent = create_agent(persona)
-    result = await asyncio.to_thread(agent, task)
-    return str(result)
+    try:
+        result = await asyncio.to_thread(agent, task)
+        return str(result)
+    except Exception as e:
+        logger.exception("Agent %s failed on task", persona.id)
+        return f"Error: {e}"
