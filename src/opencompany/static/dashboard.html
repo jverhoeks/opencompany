@@ -605,12 +605,26 @@ body::before {
   // ── Poll ───────────────────────────────────────
   const statusDot = document.getElementById('statusDot');
   const connLabel = document.getElementById('connLabel');
+  let prevStateJSON = '';
 
   async function poll() {
     try {
       const res = await fetch('/api/dashboard/overview');
       if (!res.ok) throw new Error('HTTP ' + res.status);
-      state = await res.json();
+      const newState = await res.json();
+      const newJSON = JSON.stringify(newState);
+
+      // Skip re-render when data is unchanged
+      if (newJSON === prevStateJSON) {
+        if (!connected) {
+          connected = true;
+          statusDot.style.background = 'var(--green)';
+          connLabel.textContent = 'LIVE';
+        }
+        return;
+      }
+      prevStateJSON = newJSON;
+      state = newState;
 
       // Build persona lookup
       personaMap = {};
@@ -637,9 +651,9 @@ body::before {
     }
   }
 
-  // Initial load + polling
+  // Initial load + polling (5s interval)
   poll();
-  setInterval(poll, 3000);
+  setInterval(poll, 5000);
 })();
 </script>
 </body>

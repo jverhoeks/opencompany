@@ -10,7 +10,7 @@ from opencompany.models.db import Persona
 
 logger = logging.getLogger(__name__)
 
-# Tool registry — maps tool names to actual tool functions
+# Tool registry -- maps tool names to actual tool functions
 _TOOL_REGISTRY: dict = {}
 
 
@@ -29,20 +29,25 @@ def get_model(model_id: str | None = None) -> LiteLLMModel:
     )
 
 
-def create_agent(persona: Persona, extra_tools: list | None = None) -> Agent:
-    tools = []
+def create_agent(
+    persona: Persona,
+    extra_tools: list | None = None,
+    tools: dict | None = None,
+) -> Agent:
+    registry = tools if tools is not None else _TOOL_REGISTRY
+    resolved_tools = []
     for tool_name in persona.tools:
-        if tool_name in _TOOL_REGISTRY:
-            tools.append(_TOOL_REGISTRY[tool_name])
+        if tool_name in registry:
+            resolved_tools.append(registry[tool_name])
 
     if extra_tools:
-        tools.extend(extra_tools)
+        resolved_tools.extend(extra_tools)
 
-    logger.info("Created agent for persona %s with %d tools", persona.id, len(tools))
+    logger.info("Created agent for persona %s with %d tools", persona.id, len(resolved_tools))
     return Agent(
         model=get_model(persona.model_id),
         system_prompt=build_system_prompt(persona),
-        tools=tools,
+        tools=resolved_tools,
         name=persona.name,
         description=f"{persona.role} ({persona.type})",
     )
@@ -51,6 +56,10 @@ def create_agent(persona: Persona, extra_tools: list | None = None) -> Agent:
 async def run_persona(persona: Persona, task: str) -> str:
     logger.info("Running persona %s on task: %.80s", persona.id, task)
     agent = create_agent(persona)
-    result = await asyncio.to_thread(agent, task)
-    logger.info("Persona %s finished task", persona.id)
-    return str(result)
+    try:
+        result = await asyncio.to_thread(agent, task)
+        logger.info("Persona %s finished task", persona.id)
+        return str(result)
+    except Exception as e:
+        logger.exception("Agent %s failed on task", persona.id)
+        return f"Error: {e}"

@@ -1,28 +1,16 @@
 """Task board: ticket lifecycle, auto-assignment, sync wrappers for tool use."""
 
-import asyncio
 import logging
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 
-from opencompany.models.db import Ticket
-from opencompany.models.engine import async_session, get_main_loop
+from opencompany.events.bus import publish
+from opencompany.models.db import Ticket, WorkLog
+from opencompany.models.engine import async_session
+from opencompany.utils import _run_async
 
 logger = logging.getLogger(__name__)
-
-
-def _run_async(coro):
-    """Run an async coroutine from a sync context (e.g. agent tools running in threads)."""
-    loop = get_main_loop()
-    if loop and loop.is_running():
-        future = asyncio.run_coroutine_threadsafe(coro, loop)
-        return future.result(timeout=60)
-    # Fallback for non-threaded contexts (e.g. tests)
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
 
 
 def find_best_solver(tags: list[str], solvers: list[dict]) -> dict | None:
@@ -59,8 +47,11 @@ async def _create_ticket(
             created_by=created_by,
         )
         session.add(ticket)
+        log = WorkLog(persona_id=created_by, action="created", ticket_id=ticket.id)
+        session.add(log)
         await session.commit()
         await session.refresh(ticket)
+        await publish("ticket.created", {"ticket_id": ticket.id})
         logger.info(
             "Created ticket %d: %s (priority=%s, by=%s)",
             ticket.id,
@@ -104,12 +95,19 @@ async def _update_ticket(ticket_id: int, status: str | None = None, result: str 
     async with async_session() as session:
         ticket = await session.get(Ticket, ticket_id)
         if not ticket:
-            logger.warning("Update failed: ticket %d not found", ticket_id)
-            return
+            logger.warning("Ticket #%d not found for update", ticket_id)
+            return f"Error: ticket #{ticket_id} not found"
         if status:
             ticket.status = status
+            log = WorkLog(
+                persona_id=ticket.created_by or "system",
+                action=status,
+                ticket_id=ticket_id,
+            )
+            session.add(log)
         if result:
             ticket.result = result
+        ticket.updated_at = datetime.now(UTC)
         await session.commit()
         logger.info("Updated ticket %d (status=%s)", ticket_id, status)
 
