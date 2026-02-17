@@ -80,6 +80,7 @@ async def publish(event_type: str, data: dict) -> None:
     r = await get_redis()
     payload = json.dumps({"type": event_type, "data": data})
     await r.xadd(STREAM_KEY, {"payload": payload})
+    logger.debug("Published event %s", event_type)
 
 
 async def subscribe(callback: Callable) -> None:
@@ -90,6 +91,7 @@ async def subscribe(callback: Callable) -> None:
     """
     r = await get_redis()
     await _ensure_consumer_group(r)
+    logger.info("Subscribed to event bus via consumer group %s", GROUP_NAME)
 
     backoff = 0.5
     max_backoff = 30.0
@@ -111,6 +113,7 @@ async def subscribe(callback: Callable) -> None:
                 for msg_id, fields in entries:
                     try:
                         payload = json.loads(fields["payload"])
+                        logger.debug("Received event %s", payload["type"])
                         await callback(payload["type"], payload["data"])
                         await r.xack(STREAM_KEY, GROUP_NAME, msg_id)
                     except Exception:

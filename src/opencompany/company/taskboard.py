@@ -52,6 +52,13 @@ async def _create_ticket(
         await session.commit()
         await session.refresh(ticket)
         await publish("ticket.created", {"ticket_id": ticket.id})
+        logger.info(
+            "Created ticket %d: %s (priority=%s, by=%s)",
+            ticket.id,
+            title,
+            priority,
+            created_by,
+        )
         return ticket.id
 
 
@@ -67,6 +74,7 @@ async def _list_tickets(status: str, tags: list) -> list[dict]:
         tickets = result.scalars().all()
         if tags:
             tickets = [t for t in tickets if set(tags) & set(t.tags)]
+        logger.debug("Listed %d tickets (status=%s, tags=%s)", len(tickets), status, tags)
         return [
             {
                 "id": t.id,
@@ -101,6 +109,7 @@ async def _update_ticket(ticket_id: int, status: str | None = None, result: str 
             ticket.result = result
         ticket.updated_at = datetime.now(UTC)
         await session.commit()
+        logger.info("Updated ticket %d (status=%s)", ticket_id, status)
 
 
 def update_ticket_sync(**kwargs):

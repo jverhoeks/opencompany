@@ -144,6 +144,14 @@ personas:
       platform deals and sponsor integrations.
 
 # ── Channel bindings ──────────────────────────────────────────────
+# Map incoming messages to personas based on channel, chat type, and peer.
+# Each binding specifies a persona_id and a match block with:
+#   channel   — adapter name (telegram, slack, webhook, etc.)
+#   chat_type — "direct" or "group"
+#   peer      — (optional) specific user/group id for fine-grained routing
+#
+# NOTE: The Telegram adapter does not read these bindings yet.
+# It falls back to DEFAULT_PERSONA_ID (env var, default "ceo").
 
 bindings:
   - persona_id: ceo

@@ -43,6 +43,7 @@ def create_agent(
     if extra_tools:
         resolved_tools.extend(extra_tools)
 
+    logger.info("Created agent for persona %s with %d tools", persona.id, len(resolved_tools))
     return Agent(
         model=get_model(persona.model_id),
         system_prompt=build_system_prompt(persona),
@@ -53,9 +54,11 @@ def create_agent(
 
 
 async def run_persona(persona: Persona, task: str) -> str:
+    logger.info("Running persona %s on task: %.80s", persona.id, task)
     agent = create_agent(persona)
     try:
         result = await asyncio.to_thread(agent, task)
+        logger.info("Persona %s finished task", persona.id)
         return str(result)
     except Exception as e:
         logger.exception("Agent %s failed on task", persona.id)

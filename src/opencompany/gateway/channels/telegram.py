@@ -17,11 +17,22 @@ from opencompany.models.engine import async_session
 logger = logging.getLogger(__name__)
 
 
+DEFAULT_PERSONA_ID = os.environ.get("DEFAULT_PERSONA_ID", "ceo")
+
+
 async def _resolve_persona(channel: str, chat_type: str, peer: str) -> Persona | None:
-    """Resolve which persona handles this message based on bindings."""
-    # Default to CEO for all messages for now
+    """Resolve which persona handles this message based on bindings.
+
+    TODO: Read bindings from company config and match on channel/chat_type/peer
+    instead of falling back to a single default persona.
+    """
     async with async_session() as session:
-        persona = await session.get(Persona, "ceo")
+        persona = await session.get(Persona, DEFAULT_PERSONA_ID)
+        if not persona:
+            logger.warning(
+                "Default persona %r not found, falling back to None",
+                DEFAULT_PERSONA_ID,
+            )
         return persona
 
 

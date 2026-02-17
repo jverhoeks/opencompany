@@ -1,5 +1,6 @@
 """Dashboard API: aggregated overview + serve the control tower UI."""
 
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Depends
@@ -10,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from opencompany.gateway.api import verify_api_key
 from opencompany.models.db import Persona, Ticket, WorkLog
 from opencompany.models.engine import get_session
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
