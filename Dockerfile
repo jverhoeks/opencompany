@@ -7,11 +7,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock alembic.ini ./
 COPY src/ src/
 COPY config/ config/
+COPY migrations/ migrations/
 
-RUN uv pip install --system --locked .
+RUN uv sync --frozen --no-dev
+
+ENV PATH="/app/.venv/bin:$PATH"
 
 RUN adduser --disabled-password --gecos '' appuser
 USER appuser

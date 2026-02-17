@@ -80,7 +80,7 @@ async def publish(event_type: str, data: dict) -> None:
     r = await get_redis()
     payload = json.dumps({"type": event_type, "data": data})
     await r.xadd(STREAM_KEY, {"payload": payload})
-    logger.debug("Published event %s", event_type)
+    logger.info("Published event %s: %s", event_type, data)
 
 
 async def subscribe(callback: Callable) -> None:
@@ -113,7 +113,7 @@ async def subscribe(callback: Callable) -> None:
                 for msg_id, fields in entries:
                     try:
                         payload = json.loads(fields["payload"])
-                        logger.debug("Received event %s", payload["type"])
+                        logger.info("Received event %s: %s", payload["type"], payload["data"])
                         await callback(payload["type"], payload["data"])
                         await r.xack(STREAM_KEY, GROUP_NAME, msg_id)
                     except Exception:

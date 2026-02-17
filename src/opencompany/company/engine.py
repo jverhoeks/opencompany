@@ -63,19 +63,28 @@ async def handle_event(event_type: str, data: dict):
 
 async def _auto_assign_ticket(ticket_id: int):
     """Auto-assign a ticket to the best available solver."""
+    logger.info("Auto-assigning ticket #%d", ticket_id)
     async with async_session() as session:
         ticket = await session.get(Ticket, ticket_id)
         if not ticket or ticket.status != "open":
+            status = ticket.status if ticket else "N/A"
+            logger.info("Ticket #%d skipped (status=%s)", ticket_id, status)
             return
 
         solvers = await _get_solvers_with_workload()
+        logger.info(
+            "Ticket #%d tags=%s | Available solvers: %s",
+            ticket_id,
+            ticket.tags,
+            [(s["id"], s["picks_up"] or s["skills"]) for s in solvers],
+        )
         # Use picks_up tags for matching, fall back to skills
         for solver in solvers:
             solver["skills"] = solver["picks_up"] or solver["skills"]
 
         best = find_best_solver(tags=ticket.tags, solvers=solvers)
         if not best:
-            logger.warning(f"No solver found for ticket #{ticket_id} tags={ticket.tags}")
+            logger.warning("No solver found for ticket #%d tags=%s", ticket_id, ticket.tags)
             return
 
         ticket.assigned_to = best["id"]
@@ -105,20 +114,24 @@ async def _auto_assign_ticket(ticket_id: int):
 
 async def _trigger_review(ticket_id: int):
     """Trigger reviewer for a completed ticket."""
+    logger.info("Triggering review for ticket #%d", ticket_id)
     async with async_session() as session:
         ticket = await session.get(Ticket, ticket_id)
         if not ticket:
+            logger.warning("Ticket #%d not found for review", ticket_id)
             return
 
         # Find the original creator (observer) to review
         reviewer = await session.get(Persona, ticket.created_by)
         if not reviewer:
+            logger.info("Creator %s not found, falling back to manager", ticket.created_by)
             # Fall back to any manager
             q = select(Persona).where(Persona.type == "manager", Persona.status == "active")
             result = await session.execute(q)
             reviewer = result.scalars().first()
 
     if reviewer:
+        logger.info("Reviewer for ticket #%d: %s (%s)", ticket_id, reviewer.name, reviewer.id)
         task = f"""Review ticket #{ticket.id}: {ticket.title}
 
 Solution: {ticket.result}
