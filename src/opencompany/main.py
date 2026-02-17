@@ -1,6 +1,7 @@
 # src/opencompany/main.py
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 
 import uvicorn
@@ -102,4 +103,5 @@ async def health():
 
 
 def main():
-    uvicorn.run("opencompany.main:app", host="0.0.0.0", port=8000, reload=True)
+    reload = os.environ.get("OPENCOMPANY_RELOAD", "").lower() in ("1", "true")
+    uvicorn.run("opencompany.main:app", host="0.0.0.0", port=8000, reload=reload)

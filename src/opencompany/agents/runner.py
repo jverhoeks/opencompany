@@ -1,4 +1,5 @@
 import asyncio
+import concurrent.futures
 import os
 
 from strands import Agent
@@ -9,6 +10,10 @@ from opencompany.models.db import Persona
 
 # Tool registry — maps tool names to actual tool functions
 _TOOL_REGISTRY: dict = {}
+
+_executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=int(os.environ.get("AGENT_MAX_WORKERS", "10"))
+)
 
 
 def register_tool(name: str, func):
@@ -45,6 +50,7 @@ def create_agent(persona: Persona, extra_tools: list | None = None) -> Agent:
 
 
 async def run_persona(persona: Persona, task: str) -> str:
+    loop = asyncio.get_running_loop()
     agent = create_agent(persona)
-    result = await asyncio.to_thread(agent, task)
+    result = await loop.run_in_executor(_executor, agent, task)
     return str(result)
