@@ -3,12 +3,12 @@
 
 import logging
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 
 from opencompany.agents.runner import run_persona
 from opencompany.company.taskboard import find_best_solver
 from opencompany.events.bus import subscribe
-from opencompany.models.db import Persona, Ticket
+from opencompany.models.db import Persona, Ticket, WorkLog
 from opencompany.models.engine import async_session
 
 logger = logging.getLogger(__name__)
@@ -17,28 +17,33 @@ logger = logging.getLogger(__name__)
 async def _get_solvers_with_workload() -> list[dict]:
     """Get active solvers with their current ticket count."""
     async with async_session() as session:
-        q = select(Persona).where(Persona.type == "solver", Persona.status == "active")
+        q = (
+            select(
+                Persona.id,
+                Persona.skills,
+                Persona.picks_up,
+                func.count(Ticket.id).label("workload"),
+            )
+            .outerjoin(
+                Ticket,
+                and_(
+                    Ticket.assigned_to == Persona.id,
+                    Ticket.status.in_(["assigned", "in_progress"]),
+                ),
+            )
+            .where(Persona.type == "solver", Persona.status == "active")
+            .group_by(Persona.id, Persona.skills, Persona.picks_up)
+        )
         result = await session.execute(q)
-        solvers = result.scalars().all()
-
-        solver_list = []
-        for s in solvers:
-            wq = select(func.count(Ticket.id)).where(
-                Ticket.assigned_to == s.id,
-                Ticket.status.in_(["assigned", "in_progress"]),
-            )
-            wresult = await session.execute(wq)
-            workload = wresult.scalar() or 0
-            solver_list.append(
-                {
-                    "id": s.id,
-                    "skills": s.skills,
-                    "picks_up": s.picks_up,
-                    "workload": workload,
-                }
-            )
-
-        return solver_list
+        return [
+            {
+                "id": row.id,
+                "skills": row.skills,
+                "picks_up": row.picks_up,
+                "workload": row.workload,
+            }
+            for row in result.all()
+        ]
 
 
 async def handle_event(event_type: str, data: dict):
@@ -71,6 +76,8 @@ async def _auto_assign_ticket(ticket_id: int):
 
         ticket.assigned_to = best["id"]
         ticket.status = "assigned"
+        log = WorkLog(persona_id=best["id"], action="picked_up", ticket_id=ticket_id)
+        session.add(log)
         await session.commit()
         logger.info(f"Assigned ticket #{ticket_id} to {best['id']}")
 

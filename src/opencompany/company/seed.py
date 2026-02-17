@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 
 import yaml
 from sqlalchemy import select
@@ -29,8 +30,12 @@ async def seed_company(config_path: str = "config/company.yaml"):
             logger.exception("Failed to parse %s", config_path)
             return
 
+    valid_id = re.compile(r"^[a-zA-Z0-9_-]+$")
     async with async_session() as session:
         for p in config.get("personas", []):
+            if not valid_id.match(p["id"]):
+                logger.warning(f"Skipping persona with invalid id: {p['id']!r}")
+                continue
             persona = Persona(
                 id=p["id"],
                 name=p["name"],
