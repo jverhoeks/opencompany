@@ -21,6 +21,7 @@ from opencompany.gateway.api import router as api_router
 from opencompany.gateway.channels.telegram import create_telegram_app
 from opencompany.gateway.dashboard import router as dashboard_router
 from opencompany.models.engine import engine
+from opencompany.utils import set_main_loop
 
 load_dotenv()
 
@@ -47,6 +48,9 @@ async def _wait_for_db(retries: int = 20, delay: float = 1.0):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Store the main event loop for sync-to-async bridging in tool threads
+    set_main_loop(asyncio.get_running_loop())
+
     # Register all tools
     for name, func in ALL_TOOLS.items():
         register_tool(name, func)
@@ -131,6 +135,39 @@ app.add_middleware(
 
 app.include_router(api_router, prefix="/api")
 app.include_router(dashboard_router)
+
+
+@app.get("/")
+async def root():
+    from fastapi.responses import HTMLResponse
+
+    return HTMLResponse(
+        """<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OpenCompany</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{min-height:100vh;display:flex;align-items:center;justify-content:center;
+  background:#06080f;color:#d0d8e8;font-family:'Segoe UI',system-ui,sans-serif}
+.card{text-align:center;padding:3rem;border:1px solid #1a2235;border-radius:12px;
+  background:#0c1018;max-width:400px}
+h1{font-size:1.6rem;margin-bottom:.5rem;color:#f0f4fa}
+p{font-size:.95rem;color:#5a6a80;margin-bottom:1.5rem}
+a{display:inline-block;padding:.7rem 2rem;background:#00e5ff;color:#06080f;
+  text-decoration:none;border-radius:6px;font-weight:600;font-size:.95rem;
+  transition:opacity .2s}
+a:hover{opacity:.85}
+.links{margin-top:1rem;font-size:.8rem;color:#5a6a80}
+.links a{background:none;color:#5a6a80;padding:0;font-weight:400;text-decoration:underline}
+</style></head><body>
+<div class="card">
+  <h1>OpenCompany</h1>
+  <p>Virtual AI company &mdash; autonomous agent personas coordinating via a task board.</p>
+  <a href="/dashboard">Open Dashboard</a>
+  <div class="links"><a href="/health">Health</a> &middot; <a href="/docs">API Docs</a></div>
+</div></body></html>"""
+    )
 
 
 @app.get("/health")

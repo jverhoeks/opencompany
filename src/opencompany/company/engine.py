@@ -1,6 +1,7 @@
 # src/opencompany/company/engine.py
 """Company engine: listens for events and orchestrates responses."""
 
+import asyncio
 import logging
 
 from sqlalchemy import and_, func, select
@@ -12,6 +13,9 @@ from opencompany.models.db import Persona, Ticket, WorkLog
 from opencompany.models.engine import async_session
 
 logger = logging.getLogger(__name__)
+
+# Track background persona tasks so we don't lose exceptions silently
+_running_tasks: set[asyncio.Task] = set()
 
 
 async def _get_solvers_with_workload() -> list[dict]:
@@ -90,11 +94,13 @@ async def _auto_assign_ticket(ticket_id: int):
             f"Description: {ticket.description}\n"
             f"Priority: {ticket.priority}\n"
             f"Context: {ticket.context}\n\n"
-            "Investigate and solve this issue. When done, call update_ticket "
-            "with the result and set status to 'review'."
+            "Do the work for this ticket. If it involves writing code, documents, "
+            "or any content, use write_file to save your output to the workspace. "
+            "When done, call update_ticket with your result summary and set "
+            "status to 'review'."
         )
 
-        await run_persona(persona, task)
+        _spawn_persona_task(persona, task, f"solve-ticket-{ticket.id}")
 
 
 async def _trigger_review(ticket_id: int):
@@ -120,7 +126,22 @@ Solution: {ticket.result}
 If the solution is good, call update_ticket with status='done'.
 If not, call update_ticket with status='rejected' and explain what's wrong."""
 
-        await run_persona(reviewer, task)
+        _spawn_persona_task(reviewer, task, f"review-ticket-{ticket.id}")
+
+
+def _spawn_persona_task(persona: Persona, task: str, label: str):
+    """Fire-and-forget an async persona run without blocking the event loop."""
+
+    async def _run():
+        try:
+            await run_persona(persona, task)
+        except Exception:
+            logger.exception("Background persona task %s failed", label)
+
+    t = asyncio.create_task(_run(), name=label)
+    _running_tasks.add(t)
+    t.add_done_callback(_running_tasks.discard)
+    logger.info("Spawned background task: %s", label)
 
 
 async def start_event_listener():

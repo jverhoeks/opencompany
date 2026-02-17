@@ -99,11 +99,19 @@ body::before {
 .member-info { flex: 1; min-width: 0; }
 .member-name { font-size: 13px; font-weight: 500; color: var(--text-bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .member-role { font-size: 11px; color: var(--text-dim); }
-.member-workload {
-  font-family: var(--font-mono); font-size: 10px; padding: 2px 6px;
-  border-radius: 4px; background: var(--bg-card); color: var(--text-dim);
+.member-stats {
+  display: flex; gap: 3px; margin-top: 3px;
 }
-.member-workload.busy { background: rgba(255,176,32,0.15); color: var(--amber); }
+.member-stat {
+  font-family: var(--font-mono); font-size: 9px; padding: 1px 5px;
+  border-radius: 3px; background: var(--bg-card); color: var(--text-dim);
+  white-space: nowrap; border: 1px solid transparent;
+}
+.member-stat.active { background: rgba(255,176,32,0.12); color: var(--amber); border-color: rgba(255,176,32,0.2); }
+.member-stat.created { background: rgba(0,229,255,0.08); color: var(--cyan); border-color: rgba(0,229,255,0.15); }
+.member-stat.done { background: rgba(57,255,138,0.08); color: var(--green); border-color: rgba(57,255,138,0.15); }
+.member-stat.actions { background: rgba(167,139,250,0.08); color: var(--purple); border-color: rgba(167,139,250,0.15); }
+.member-stat .stat-val { font-weight: 600; }
 
 /* KPI strip at bottom of sidebar */
 .kpi-strip {
@@ -408,11 +416,28 @@ body::before {
       const info = el('div', 'member-info');
       info.appendChild(el('div', 'member-name', p.name));
       info.appendChild(el('div', 'member-role', p.role));
-      row.appendChild(info);
 
-      const wl = el('div', 'member-workload' + (p.workload > 0 ? ' busy' : ''));
-      wl.textContent = p.workload > 0 ? p.workload + ' task' + (p.workload > 1 ? 's' : '') : 'idle';
-      row.appendChild(wl);
+      const stats = el('div', 'member-stats');
+      function addStat(cls, icon, val) {
+        if (val > 0) {
+          const s = el('span', 'member-stat ' + cls);
+          const ic = document.createTextNode(icon + ' ');
+          s.appendChild(ic);
+          const v = el('span', 'stat-val', String(val));
+          s.appendChild(v);
+          stats.appendChild(s);
+        }
+      }
+      addStat('active',  '\u25B6', p.workload);  // ▶ active tasks
+      addStat('created', '\u270E', p.created);    // ✎ tickets created
+      addStat('done',    '\u2713', p.done);       // ✓ completed
+      addStat('actions', '\u26A1', p.actions);    // ⚡ actions taken
+      if (stats.children.length === 0) {
+        const idle = el('span', 'member-stat', 'idle');
+        stats.appendChild(idle);
+      }
+      info.appendChild(stats);
+      row.appendChild(info);
 
       teamListEl.appendChild(row);
     });
@@ -547,14 +572,36 @@ body::before {
 
   // ── Render: Chat persona select ────────────────
   const chatPersonaEl = document.getElementById('chatPersona');
+  let currentChatPersona = '';
+  const chatHistories = {};  // { personaId: [{sender, text, isUser}] }
+
   function renderChatSelect() {
+    const prev = chatPersonaEl.value;
     clearChildren(chatPersonaEl);
     state.personas.forEach(p => {
       const opt = el('option', '', p.name + ' (' + p.role + ')');
       opt.value = p.id;
       chatPersonaEl.appendChild(opt);
     });
+    // Restore previous selection if still valid
+    if (prev && [...chatPersonaEl.options].some(o => o.value === prev)) {
+      chatPersonaEl.value = prev;
+    }
+    switchChatPersona();
   }
+
+  function switchChatPersona() {
+    const personaId = chatPersonaEl.value;
+    if (personaId === currentChatPersona) return;
+    currentChatPersona = personaId;
+    // Render stored history for this persona
+    clearChildren(chatMessagesEl);
+    const history = chatHistories[personaId] || [];
+    history.forEach(m => renderChatBubble(m.sender, m.text, m.isUser));
+    chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+  }
+
+  chatPersonaEl.addEventListener('change', switchChatPersona);
 
   // ── Chat ───────────────────────────────────────
   const chatMessagesEl = document.getElementById('chatMessages');
@@ -562,11 +609,18 @@ body::before {
   const chatSendEl = document.getElementById('chatSend');
   const typingEl = document.getElementById('typingIndicator');
 
-  function addChatMessage(sender, text, isUser) {
+  function renderChatBubble(sender, text, isUser) {
     const msg = el('div', 'chat-msg ' + (isUser ? 'user' : 'bot'));
     if (!isUser) msg.appendChild(el('div', 'chat-msg-sender', sender));
     msg.appendChild(document.createTextNode(text));
     chatMessagesEl.appendChild(msg);
+  }
+
+  function addChatMessage(sender, text, isUser) {
+    const personaId = currentChatPersona;
+    if (!chatHistories[personaId]) chatHistories[personaId] = [];
+    chatHistories[personaId].push({ sender, text, isUser });
+    renderChatBubble(sender, text, isUser);
     chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
   }
 

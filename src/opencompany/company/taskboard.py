@@ -111,6 +111,10 @@ async def _update_ticket(ticket_id: int, status: str | None = None, result: str 
         await session.commit()
         logger.info("Updated ticket %d (status=%s)", ticket_id, status)
 
+        # Trigger review flow when a solver submits for review
+        if status == "review":
+            await publish("ticket.review", {"ticket_id": ticket_id})
+
 
 def update_ticket_sync(**kwargs):
     return _run_async(_update_ticket(**kwargs))

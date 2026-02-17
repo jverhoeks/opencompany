@@ -61,6 +61,24 @@ def grep_code(pattern: str, directory: str = ".", file_glob: str = "*.py") -> st
 
 
 @tool
+def write_file(path: str, content: str) -> str:
+    """Write content to a file in the workspace. Creates parent directories as needed.
+
+    Args:
+        path: Path to the file to write (relative to workspace root)
+        content: Content to write to the file
+    """
+    try:
+        safe = _safe_resolve(path)
+    except ValueError as e:
+        return f"Error: {e}"
+    os.makedirs(os.path.dirname(safe), exist_ok=True)
+    with open(safe, "w") as f:
+        f.write(content)
+    return f"Wrote {len(content)} bytes to {path}"
+
+
+@tool
 def list_files(directory: str = ".", pattern: str = "") -> str:
     """List files in a directory.
 
