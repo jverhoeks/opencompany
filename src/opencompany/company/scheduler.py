@@ -38,12 +38,15 @@ def _parse_schedule(schedule_str: str) -> dict:
     s = schedule_str.lower().strip()
     if s.startswith("every "):
         val = s[6:]
-        if val.endswith("h"):
-            return {"trigger": "interval", "hours": int(val[:-1])}
-        elif val.endswith("m"):
-            return {"trigger": "interval", "minutes": int(val[:-1])}
-        elif val.endswith("d"):
-            return {"trigger": "interval", "days": int(val[:-1])}
+        try:
+            if val.endswith("h"):
+                return {"trigger": "interval", "hours": int(val[:-1])}
+            elif val.endswith("m"):
+                return {"trigger": "interval", "minutes": int(val[:-1])}
+            elif val.endswith("d"):
+                return {"trigger": "interval", "days": int(val[:-1])}
+        except ValueError:
+            logger.warning("Invalid schedule format: %r, defaulting to 1h", schedule_str)
     return {"trigger": "interval", "hours": 1}
 
 

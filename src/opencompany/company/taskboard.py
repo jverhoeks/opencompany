@@ -1,6 +1,7 @@
 """Task board: ticket lifecycle, auto-assignment, sync wrappers for tool use."""
 
 import asyncio
+import logging
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -8,6 +9,8 @@ from sqlalchemy import select
 from opencompany.events.bus import publish
 from opencompany.models.db import Ticket, WorkLog
 from opencompany.models.engine import async_session, get_main_loop
+
+logger = logging.getLogger(__name__)
 
 
 def _run_async(coro):
@@ -98,7 +101,8 @@ async def _update_ticket(ticket_id: int, status: str | None = None, result: str 
     async with async_session() as session:
         ticket = await session.get(Ticket, ticket_id)
         if not ticket:
-            return
+            logger.warning("Ticket #%d not found for update", ticket_id)
+            return f"Error: ticket #{ticket_id} not found"
         if status:
             ticket.status = status
             log = WorkLog(

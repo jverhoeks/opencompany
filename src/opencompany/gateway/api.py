@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -7,6 +9,8 @@ from opencompany.agents.runner import run_persona
 from opencompany.events.bus import publish
 from opencompany.models.db import Persona, Ticket
 from opencompany.models.engine import get_session
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -103,5 +107,6 @@ async def api_chat(body: ChatRequest, session: AsyncSession = Depends(get_sessio
     if not persona:
         raise HTTPException(status_code=404, detail="Persona not found")
 
+    logger.info("Chat request for persona %s", body.persona_id)
     result = await run_persona(persona, body.message)
     return ChatResponse(response=result)
