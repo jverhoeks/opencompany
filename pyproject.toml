@@ -3,7 +3,7 @@ name = "opencompany"
 version = "0.1.0"
 description = "Virtual AI company — autonomous agent personas coordinating via task board"
 author = "Jacob Verhoeks <jacob.verhoeks@gmail.com>"
-requires-python = ">=3.14"
+requires-python = ">=3.13"
 dependencies = [
     "strands-agents>=0.3.0",
     "strands-agents-tools>=0.1.0",
@@ -21,8 +21,19 @@ dependencies = [
     "httpx>=0.28.0",
 ]
 
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.28",
+    "aiosqlite>=0.20",
+]
+
 [project.scripts]
 opencompany = "opencompany.main:main"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
 
 [tool.ruff]
 target-version = "py313"

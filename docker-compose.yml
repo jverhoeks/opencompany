@@ -5,27 +5,43 @@ services:
       POSTGRES_USER: opencompany
       POSTGRES_PASSWORD: opencompany
       POSTGRES_DB: opencompany
-    ports:
-      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    networks:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opencompany"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    networks:
+      - backend
+    restart: unless-stopped
 
   app:
     build: .
     ports:
-      - "8000:8000"
+      - "8001:8000"
     env_file: .env
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
     volumes:
       - ./workspaces:/app/workspaces
       - ./config:/app/config
+    networks:
+      - backend
+    restart: unless-stopped
+
+networks:
+  backend:
+    driver: bridge
 
 volumes:
   pgdata:

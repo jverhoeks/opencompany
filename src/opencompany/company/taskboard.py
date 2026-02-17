@@ -5,7 +5,21 @@ import asyncio
 from sqlalchemy import select
 
 from opencompany.models.db import Ticket
-from opencompany.models.engine import async_session
+from opencompany.models.engine import async_session, get_main_loop
+
+
+def _run_async(coro):
+    """Run an async coroutine from a sync context (e.g. agent tools running in threads)."""
+    loop = get_main_loop()
+    if loop and loop.is_running():
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+        return future.result(timeout=60)
+    # Fallback for non-threaded contexts (e.g. tests)
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 def find_best_solver(tags: list[str], solvers: list[dict]) -> dict | None:
@@ -49,11 +63,7 @@ async def _create_ticket(
 
 def create_ticket_sync(**kwargs) -> int:
     """Sync wrapper for use in @tool functions."""
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(_create_ticket(**kwargs))
-    finally:
-        loop.close()
+    return _run_async(_create_ticket(**kwargs))
 
 
 async def _list_tickets(status: str, tags: list) -> list[dict]:
@@ -76,11 +86,7 @@ async def _list_tickets(status: str, tags: list) -> list[dict]:
 
 
 def list_tickets_sync(**kwargs) -> list[dict]:
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(_list_tickets(**kwargs))
-    finally:
-        loop.close()
+    return _run_async(_list_tickets(**kwargs))
 
 
 async def _update_ticket(ticket_id: int, status: str | None = None, result: str | None = None):
@@ -96,8 +102,4 @@ async def _update_ticket(ticket_id: int, status: str | None = None, result: str 
 
 
 def update_ticket_sync(**kwargs):
-    loop = asyncio.new_event_loop()
-    try:
-        loop.run_until_complete(_update_ticket(**kwargs))
-    finally:
-        loop.close()
+    return _run_async(_update_ticket(**kwargs))

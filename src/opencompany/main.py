@@ -15,8 +15,9 @@ from opencompany.company.scheduler import register_observers, start_scheduler
 from opencompany.company.seed import seed_company
 from opencompany.gateway.api import router as api_router
 from opencompany.gateway.channels.telegram import create_telegram_app
+from opencompany.gateway.dashboard import router as dashboard_router
 from opencompany.models.base import Base
-from opencompany.models.engine import engine
+from opencompany.models.engine import engine, set_main_loop
 
 load_dotenv()
 
@@ -24,12 +25,35 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+async def _wait_for_db(retries: int = 20, delay: float = 1.0):
+    """Wait until the database is reachable."""
+    from sqlalchemy import text
+
+    for attempt in range(1, retries + 1):
+        try:
+            async with engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+            logger.info("Database is ready")
+            return
+        except Exception:
+            if attempt == retries:
+                raise
+            logger.warning(f"DB not ready (attempt {attempt}/{retries}), retrying...")
+            await asyncio.sleep(delay)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Store the main event loop for sync wrappers
+    set_main_loop(asyncio.get_running_loop())
+
     # Register all tools
     for name, func in ALL_TOOLS.items():
         register_tool(name, func)
     logger.info(f"Registered {len(ALL_TOOLS)} tools")
+
+    # Wait for DB
+    await _wait_for_db()
 
     # Create tables
     async with engine.begin() as conn:
@@ -69,6 +93,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="OpenCompany", version="0.1.0", lifespan=lifespan)
 app.include_router(api_router, prefix="/api")
+app.include_router(dashboard_router)
 
 
 @app.get("/health")

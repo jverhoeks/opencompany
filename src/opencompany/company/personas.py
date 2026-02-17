@@ -6,7 +6,20 @@ import os
 from sqlalchemy import select
 
 from opencompany.models.db import Persona
-from opencompany.models.engine import async_session
+from opencompany.models.engine import async_session, get_main_loop
+
+
+def _run_async(coro):
+    """Run an async coroutine from a sync context (e.g. agent tools running in threads)."""
+    loop = get_main_loop()
+    if loop and loop.is_running():
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+        return future.result(timeout=60)
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 async def _hire_persona(
@@ -42,11 +55,7 @@ async def _hire_persona(
 
 
 def hire_persona_sync(**kwargs) -> str:
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(_hire_persona(**kwargs))
-    finally:
-        loop.close()
+    return _run_async(_hire_persona(**kwargs))
 
 
 async def _fire_persona(persona_id: str, reason: str = "") -> str:
@@ -60,11 +69,7 @@ async def _fire_persona(persona_id: str, reason: str = "") -> str:
 
 
 def fire_persona_sync(**kwargs) -> str:
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(_fire_persona(**kwargs))
-    finally:
-        loop.close()
+    return _run_async(_fire_persona(**kwargs))
 
 
 async def _list_personas(reports_to: str | None = None) -> list[dict]:
@@ -80,8 +85,4 @@ async def _list_personas(reports_to: str | None = None) -> list[dict]:
 
 
 def list_personas_sync(**kwargs) -> list[dict]:
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(_list_personas(**kwargs))
-    finally:
-        loop.close()
+    return _run_async(_list_personas(**kwargs))

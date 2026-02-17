@@ -1,3 +1,4 @@
+import asyncio
 import os
 
 from strands import Agent
@@ -45,5 +46,5 @@ def create_agent(persona: Persona, extra_tools: list | None = None) -> Agent:
 
 async def run_persona(persona: Persona, task: str) -> str:
     agent = create_agent(persona)
-    result = agent(task)
+    result = await asyncio.to_thread(agent, task)
     return str(result)
