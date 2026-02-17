@@ -1,12 +1,16 @@
 """Persona management: CRUD, org chart, sync wrappers for tool use."""
 
 import asyncio
+import logging
 import os
+import re
 
 from sqlalchemy import select
 
 from opencompany.models.db import Persona
 from opencompany.models.engine import async_session, get_main_loop
+
+logger = logging.getLogger(__name__)
 
 
 def _run_async(coro):
@@ -22,6 +26,9 @@ def _run_async(coro):
         loop.close()
 
 
+_VALID_PERSONA_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+
 async def _hire_persona(
     persona_id: str,
     name: str,
@@ -31,6 +38,10 @@ async def _hire_persona(
     backstory: str,
     reports_to: str | None = None,
 ) -> str:
+    if not _VALID_PERSONA_ID.match(persona_id):
+        return (
+            f"Error: invalid persona_id {persona_id!r} (alphanumeric, hyphens, underscores only)"
+        )
     async with async_session() as session:
         existing = await session.get(Persona, persona_id)
         if existing:
@@ -51,6 +62,7 @@ async def _hire_persona(
     workspace = os.path.join("workspaces", persona_id)
     os.makedirs(workspace, exist_ok=True)
 
+    logger.info("Hired persona %s (%s)", persona_id, role)
     return f"Hired {name} as {role} (id={persona_id})"
 
 
