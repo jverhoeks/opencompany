@@ -26,7 +26,10 @@ async def _resolve_persona(channel: str, chat_type: str, peer: str) -> Persona |
 
 
 async def _handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Welcome to OpenCompany. I'm the team. Ask me anything!")
+    try:
+        await update.message.reply_text("Welcome to OpenCompany. I'm the team. Ask me anything!")
+    except Exception:
+        logger.exception("Failed to send start message")
 
 
 async def _handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -46,9 +49,9 @@ async def _handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Telegram has a 4096 char limit
         for i in range(0, len(result), 4000):
             await update.message.reply_text(result[i : i + 4000])
-    except Exception as e:
-        logger.error(f"Error: {e}")
-        await update.message.reply_text(f"Error: {str(e)[:200]}")
+    except Exception:
+        logger.exception("Error processing message from user %s", peer)
+        await update.message.reply_text("Sorry, something went wrong. Please try again.")
 
 
 def create_telegram_app() -> Application | None:

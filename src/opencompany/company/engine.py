@@ -43,10 +43,13 @@ async def _get_solvers_with_workload() -> list[dict]:
 
 async def handle_event(event_type: str, data: dict):
     """Handle events from the bus."""
-    if event_type == "ticket.created":
-        await _auto_assign_ticket(data["ticket_id"])
-    elif event_type == "ticket.review":
-        await _trigger_review(data["ticket_id"])
+    try:
+        if event_type == "ticket.created":
+            await _auto_assign_ticket(data["ticket_id"])
+        elif event_type == "ticket.review":
+            await _trigger_review(data["ticket_id"])
+    except Exception:
+        logger.exception("Error handling event %s: %s", event_type, data)
 
 
 async def _auto_assign_ticket(ticket_id: int):

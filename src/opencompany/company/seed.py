@@ -23,7 +23,11 @@ async def seed_company(config_path: str = "config/company.yaml"):
             return
 
     with open(config_path) as f:
-        config = yaml.safe_load(f)
+        try:
+            config = yaml.safe_load(f)
+        except yaml.YAMLError:
+            logger.exception("Failed to parse %s", config_path)
+            return
 
     async with async_session() as session:
         for p in config.get("personas", []):

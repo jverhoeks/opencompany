@@ -1,12 +1,15 @@
 """Persona management: CRUD, org chart, sync wrappers for tool use."""
 
 import asyncio
+import logging
 import os
 
 from sqlalchemy import select
 
 from opencompany.models.db import Persona
 from opencompany.models.engine import async_session, get_main_loop
+
+logger = logging.getLogger(__name__)
 
 
 def _run_async(coro):
@@ -51,6 +54,7 @@ async def _hire_persona(
     workspace = os.path.join("workspaces", persona_id)
     os.makedirs(workspace, exist_ok=True)
 
+    logger.info("Hired persona %s (%s)", persona_id, role)
     return f"Hired {name} as {role} (id={persona_id})"
 
 
