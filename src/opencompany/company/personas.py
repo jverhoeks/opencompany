@@ -4,6 +4,7 @@ import logging
 import os
 import re
 
+import yaml
 from sqlalchemy import select
 
 from opencompany.models.db import Persona, Ticket
@@ -82,39 +83,34 @@ def _append_to_company_yaml(
     tools: list[str] | None,
     picks_up: list[str] | None,
 ) -> None:
-    """Append a new persona entry to config/company.yaml."""
+    """Add a new persona entry to config/company.yaml (dict format)."""
     yaml_path = os.path.join("config", "company.yaml")
     if not os.path.exists(yaml_path):
         return
 
-    skills_str = ", ".join(skills)
-    entry = f"""
-  - id: {persona_id}
-    name: "{name}"
-    role: "{role}"
-    type: {persona_type}
-    skills: [{skills_str}]"""
-
-    if reports_to:
-        entry += f"\n    reports_to: {reports_to}"
-    if picks_up:
-        entry += f"\n    picks_up: [{', '.join(picks_up)}]"
-    if tools:
-        entry += f"\n    tools: [{', '.join(tools)}]"
-    entry += f"\n    backstory: >\n      {backstory.strip()}\n"
-
     try:
         with open(yaml_path) as f:
-            content = f.read()
+            raw = yaml.safe_load(f)
 
-        # Insert before bindings section
-        if "\nbindings:" in content:
-            content = content.replace("\nbindings:", f"{entry}\nbindings:")
-        else:
-            content += entry
+        personas = raw.setdefault("personas", {})
+        if persona_id in personas:
+            logger.warning("Persona %s already in YAML, skipping", persona_id)
+            return
+
+        # Role ID is derived from the role title
+        role_id = role.lower().replace(" ", "-")
+        entry: dict = {"role": role_id, "name": name, "backstory": backstory}
+        if reports_to:
+            entry["reports_to"] = reports_to
+
+        personas[persona_id] = entry
 
         with open(yaml_path, "w") as f:
-            f.write(content)
+            yaml.dump(raw, f, default_flow_style=False, sort_keys=False)
+
+        from opencompany.company.config import invalidate_cache
+
+        invalidate_cache()
         logger.info("Added persona %s to company.yaml", persona_id)
     except Exception:
         logger.exception("Failed to update company.yaml for persona %s", persona_id)
