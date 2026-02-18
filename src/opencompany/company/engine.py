@@ -1,5 +1,4 @@
-# src/opencompany/company/engine.py
-"""Company engine: smart ticket routing and persona state tracking."""
+"""Company engine: config-driven ticket routing and persona state tracking."""
 
 import asyncio
 import logging
@@ -7,6 +6,7 @@ import logging
 from sqlalchemy import and_, func, select
 
 from opencompany.agents.runner import run_persona
+from opencompany.company.config import load_company_config
 from opencompany.company.taskboard import find_best_solver
 from opencompany.events.bus import subscribe
 from opencompany.models.db import Persona, Ticket, WorkLog
@@ -16,25 +16,6 @@ logger = logging.getLogger(__name__)
 
 # Track background persona tasks so we don't lose exceptions silently
 _running_tasks: set[asyncio.Task] = set()
-
-# Tag-to-lead mapping for PM ticket routing
-_LEAD_ROUTING: dict[str, str] = {
-    "backend": "tech-lead",
-    "frontend": "tech-lead",
-    "architecture": "tech-lead",
-    "technical": "tech-lead",
-    "api": "tech-lead",
-    "database": "tech-lead",
-    "game-server": "tech-lead",
-    "marketing": "marketing-lead",
-    "content": "marketing-lead",
-    "growth": "marketing-lead",
-    "community": "marketing-lead",
-    "sales": "marketing-lead",
-    "sales-page": "marketing-lead",
-    "website": "marketing-lead",
-    "copy": "marketing-lead",
-}
 
 
 async def set_persona_state(persona_id: str, state: str) -> None:
@@ -58,14 +39,25 @@ async def handle_event(event_type: str, data: dict):
 
 
 async def _route_ticket(ticket_id: int):
-    """Route a ticket based on who created it.
+    """Route a ticket based on org style routing rules and role config.
 
-    CEO-created -> PM (for breakdown)
-    PM-created  -> relevant lead (by tags)
-    Lead-created -> solver (skill matching)
-    HR-tagged -> HR persona
+    Reads routing from company config:
+    - Look up creator's role type
+    - Apply org_style routing: ceo->pm, pm->lead, lead->solver, etc.
+    - For 'lead' targets, match ticket tags to role tag_match
+    - For 'solver' targets, use find_best_solver
+    - HR-tagged tickets always go to HR
     """
     logger.info("Routing ticket #%d", ticket_id)
+
+    try:
+        config = load_company_config()
+    except FileNotFoundError:
+        logger.warning("No company config, cannot route ticket #%d", ticket_id)
+        return
+
+    routing = config.org_styles.get(config.org_style, {}).get("routing", {})
+
     async with async_session() as session:
         ticket = await session.get(Ticket, ticket_id)
         if not ticket or ticket.status != "open":
@@ -75,28 +67,39 @@ async def _route_ticket(ticket_id: int):
 
         creator_id = ticket.created_by
         creator = await session.get(Persona, creator_id) if creator_id else None
-        creator_type = creator.type if creator else None
 
         # HR-tagged tickets always go to HR
         if "hr" in ticket.tags or "hiring" in ticket.tags:
             target_id = "hr"
-        # CEO tickets go to PM for breakdown
-        elif creator_id == "ceo":
-            target_id = "pm"
-        # PM tickets go to relevant lead based on tags
-        elif creator_id == "pm" or (
-            creator_type == "manager" and creator_id not in ("tech-lead", "marketing-lead")
-        ):
-            target_id = _find_lead_for_tags(ticket.tags)
-        # Lead/other tickets go to solver
         else:
+            target_type = _get_routing_target(creator, config, routing)
+
+            if target_type == "solver":
+                await _assign_to_solver(ticket, session)
+                return
+            elif target_type in ("lead", "circle"):
+                target_id = _find_lead_for_tags(ticket.tags, config)
+                if not target_id:
+                    await _assign_to_solver(ticket, session)
+                    return
+            else:
+                # target_type is a specific role ID (e.g. "pm")
+                target_id = target_type
+
+        if not target_id:
+            logger.warning(
+                "No routing target for ticket #%d, falling back to solver",
+                ticket_id,
+            )
             await _assign_to_solver(ticket, session)
             return
 
-        # Assign to the target persona
         target = await session.get(Persona, target_id)
         if not target or target.status != "active":
-            logger.warning("Target %s not available, falling back to solver", target_id)
+            logger.warning(
+                "Target %s not available, falling back to solver",
+                target_id,
+            )
             await _assign_to_solver(ticket, session)
             return
 
@@ -105,7 +108,12 @@ async def _route_ticket(ticket_id: int):
         log = WorkLog(persona_id=target_id, action="picked_up", ticket_id=ticket_id)
         session.add(log)
         await session.commit()
-        logger.info("Routed ticket #%d to %s (%s)", ticket_id, target.name, target_id)
+        logger.info(
+            "Routed ticket #%d to %s (%s)",
+            ticket_id,
+            target.name,
+            target_id,
+        )
 
     _spawn_persona_task(
         target,
@@ -114,13 +122,53 @@ async def _route_ticket(ticket_id: int):
     )
 
 
-def _find_lead_for_tags(tags: list[str]) -> str:
-    """Find the best lead for a set of tags."""
-    for tag in tags:
-        if tag.lower() in _LEAD_ROUTING:
-            return _LEAD_ROUTING[tag.lower()]
-    # Default to tech-lead for unrecognized tags
-    return "tech-lead"
+def _get_routing_target(
+    creator: Persona | None,
+    config,
+    routing: dict[str, str],
+) -> str:
+    """Determine where a ticket should go based on creator's role."""
+    if not creator:
+        return "solver"
+
+    # Check routing by creator's persona ID first
+    if creator.id in routing:
+        return routing[creator.id]
+
+    # Check role config for routes_to
+    creator_role_config = config.roles.get(creator.id, {})
+    routes_to = creator_role_config.get("routes_to")
+    if routes_to:
+        return routes_to
+
+    # Check routing table by type
+    role_type = creator_role_config.get("type", creator.type)
+    if role_type in routing:
+        return routing[role_type]
+
+    # Leads route to solver by default
+    if role_type == "lead":
+        return "solver"
+
+    return "solver"
+
+
+def _find_lead_for_tags(tags: list[str], config) -> str | None:
+    """Find the best lead/persona for a set of tags using role tag_match."""
+    best_match = None
+    best_score = 0
+
+    for role_id, role in config.roles.items():
+        tag_match = role.get("tag_match", [])
+        if not tag_match:
+            continue
+        tag_match_lower = [tm.lower() for tm in tag_match]
+        score = sum(1 for t in tags if t.lower() in tag_match_lower)
+        if score > best_score:
+            best_score = score
+            best_match = role_id
+
+    return best_match
 
 
 async def _assign_to_solver(ticket: Ticket, session) -> None:
@@ -212,21 +260,28 @@ async def _trigger_review(ticket_id: int):
             logger.warning("Ticket #%d not found for review", ticket_id)
             return
 
-        # Find the original creator to review
         reviewer = await session.get(Persona, ticket.created_by)
         if not reviewer:
-            logger.info("Creator %s not found, falling back to manager", ticket.created_by)
+            logger.info(
+                "Creator %s not found, falling back to manager",
+                ticket.created_by,
+            )
             q = select(Persona).where(Persona.type == "manager", Persona.status == "active")
             result = await session.execute(q)
             reviewer = result.scalars().first()
 
     if reviewer:
-        logger.info("Reviewer for ticket #%d: %s (%s)", ticket_id, reviewer.name, reviewer.id)
+        logger.info(
+            "Reviewer for ticket #%d: %s (%s)",
+            ticket_id,
+            reviewer.name,
+            reviewer.id,
+        )
         task = (
             f"Review ticket #{ticket.id}: {ticket.title}\n\n"
             f"Solution: {ticket.result}\n\n"
             "If the solution is good, call update_ticket with status='done'.\n"
-            "If not, call update_ticket with status='rejected' and explain what's wrong."
+            "If not, call update_ticket with status='rejected' and explain."
         )
         _spawn_persona_task(reviewer, task, f"review-ticket-{ticket.id}")
 

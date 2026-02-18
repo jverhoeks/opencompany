@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 async def seed_company(config_path: str = "config/company.yaml"):
     """Load initial personas from company.yaml if DB is empty."""
     if not os.path.isfile(config_path):
-        logger.warning(f"No config at {config_path}, skipping seed")
+        logger.warning("No config at %s, skipping seed", config_path)
         return
 
     async with async_session() as session:
@@ -31,13 +31,26 @@ async def seed_company(config_path: str = "config/company.yaml"):
             return
 
     valid_id = re.compile(r"^[a-zA-Z0-9_-]+$")
+    roles = config.get("roles", {})
+    personas_config = config.get("personas", {})
+
+    # New format: personas is a dict referencing roles
+    if isinstance(personas_config, dict):
+        persona_list = _build_persona_list_from_dict(personas_config, roles)
+    # Old format: personas is a list of full persona defs
+    elif isinstance(personas_config, list):
+        persona_list = personas_config
+    else:
+        persona_list = []
+
     async with async_session() as session:
-        for p in config.get("personas", []):
-            if not valid_id.match(p["id"]):
-                logger.warning(f"Skipping persona with invalid id: {p['id']!r}")
+        for p in persona_list:
+            pid = p.get("id", "")
+            if not valid_id.match(pid):
+                logger.warning("Skipping persona with invalid id: %r", pid)
                 continue
             persona = Persona(
-                id=p["id"],
+                id=pid,
                 name=p["name"],
                 role=p["role"],
                 type=p["type"],
@@ -49,9 +62,31 @@ async def seed_company(config_path: str = "config/company.yaml"):
                 backstory=p.get("backstory", ""),
             )
             session.add(persona)
-            os.makedirs(os.path.join("workspaces", p["id"]), exist_ok=True)
-            logger.info(f"Seeded persona: {p['name']} ({p['id']})")
+            os.makedirs(os.path.join("workspaces", pid), exist_ok=True)
+            logger.info("Seeded persona: %s (%s)", p["name"], pid)
 
         await session.commit()
 
-    logger.info(f"Seeded {len(config.get('personas', []))} personas")
+    logger.info("Seeded %d personas", len(persona_list))
+
+
+def _build_persona_list_from_dict(personas: dict, roles: dict) -> list[dict]:
+    """Convert new-format personas dict to list, merging role config."""
+    result = []
+    for persona_id, pdata in personas.items():
+        role_id = pdata.get("role", persona_id)
+        role_config = roles.get(role_id, {})
+        result.append(
+            {
+                "id": persona_id,
+                "name": pdata.get("name", persona_id),
+                "role": role_id.replace("-", " ").title(),
+                "type": role_config.get("type", "solver"),
+                "skills": role_config.get("tag_match", []),
+                "tools": role_config.get("tools", []),
+                "picks_up": role_config.get("tag_match", []),
+                "reports_to": pdata.get("reports_to"),
+                "backstory": pdata.get("backstory", ""),
+            }
+        )
+    return result

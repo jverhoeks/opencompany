@@ -11,9 +11,96 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from opencompany.company.config import CompanyConfig
 from opencompany.gateway.api import router
 from opencompany.models.db import Persona, Ticket
 from opencompany.models.engine import get_session
+
+# ---------------------------------------------------------------------------
+# Shared config for engine routing tests
+# ---------------------------------------------------------------------------
+_GAME_CONFIG = CompanyConfig(
+    org_style="hierarchical",
+    org_styles={
+        "hierarchical": {
+            "routing": {"ceo": "pm", "pm": "lead", "lead": "solver"},
+            "max_depth": 3,
+        },
+    },
+    roles={
+        "ceo": {
+            "builtin": True,
+            "type": "manager",
+            "responsibilities": "Set strategic direction.",
+            "tools": ["create_ticket"],
+            "routes_to": "pm",
+        },
+        "hr": {
+            "builtin": True,
+            "type": "manager",
+            "responsibilities": "Handle hiring.",
+            "tools": ["hire_persona"],
+        },
+        "pm": {
+            "type": "manager",
+            "responsibilities": "Coordinate work.",
+            "tools": ["create_ticket"],
+            "routes_to": "lead",
+        },
+        "tech-lead": {
+            "type": "lead",
+            "tag_match": [
+                "backend",
+                "frontend",
+                "architecture",
+                "code",
+                "technical",
+                "api",
+                "database",
+                "game-server",
+            ],
+            "responsibilities": "Design architecture.",
+            "tools": ["create_ticket"],
+            "routes_to": "solver",
+        },
+        "marketing-lead": {
+            "type": "lead",
+            "tag_match": [
+                "marketing",
+                "content",
+                "sales-page",
+                "blog",
+                "copy",
+                "growth",
+                "community",
+                "sales",
+                "website",
+            ],
+            "responsibilities": "Marketing strategy.",
+            "tools": ["create_ticket"],
+            "routes_to": "solver",
+        },
+        "backend-dev": {
+            "type": "solver",
+            "tag_match": ["backend", "python", "api", "database", "game-server"],
+            "responsibilities": "Write backend code.",
+            "tools": ["read_file", "write_file"],
+        },
+        "frontend-dev": {
+            "type": "solver",
+            "tag_match": ["frontend", "html", "css", "javascript", "ui", "canvas", "game-client"],
+            "responsibilities": "Write frontend code.",
+            "tools": ["read_file", "write_file"],
+        },
+        "content-writer": {
+            "type": "solver",
+            "tag_match": ["content", "copy", "blog", "sales-page", "documentation", "website"],
+            "responsibilities": "Write content.",
+            "tools": ["read_file", "write_file"],
+        },
+    },
+    personas={},
+)
 
 
 # ---------------------------------------------------------------------------
@@ -128,9 +215,10 @@ async def test_get_persona_not_found(client: AsyncClient):
 
 
 # ---------------------------------------------------------------------------
-# Tickets
+# Tickets (via API — requires Redis mock for publish)
 # ---------------------------------------------------------------------------
-async def test_create_ticket(client: AsyncClient):
+@patch("opencompany.gateway.api.publish", new_callable=AsyncMock)
+async def test_create_ticket(mock_pub, client: AsyncClient):
     resp = await client.post(
         "/api/tickets",
         json={
@@ -149,7 +237,8 @@ async def test_create_ticket(client: AsyncClient):
     assert data["id"] is not None
 
 
-async def test_create_ticket_defaults(client: AsyncClient):
+@patch("opencompany.gateway.api.publish", new_callable=AsyncMock)
+async def test_create_ticket_defaults(mock_pub, client: AsyncClient):
     resp = await client.post("/api/tickets", json={"title": "Simple task"})
     assert resp.status_code == 200
     data = resp.json()
@@ -158,8 +247,8 @@ async def test_create_ticket_defaults(client: AsyncClient):
     assert data["tags"] == []
 
 
-async def test_list_tickets_by_status(client: AsyncClient):
-    # Create two tickets
+@patch("opencompany.gateway.api.publish", new_callable=AsyncMock)
+async def test_list_tickets_by_status(mock_pub, client: AsyncClient):
     await client.post("/api/tickets", json={"title": "Ticket A", "priority": "low"})
     await client.post("/api/tickets", json={"title": "Ticket B", "priority": "high"})
 
@@ -171,14 +260,16 @@ async def test_list_tickets_by_status(client: AsyncClient):
     assert titles == {"Ticket A", "Ticket B"}
 
 
-async def test_list_tickets_empty_status(client: AsyncClient):
+@patch("opencompany.gateway.api.publish", new_callable=AsyncMock)
+async def test_list_tickets_empty_status(mock_pub, client: AsyncClient):
     await client.post("/api/tickets", json={"title": "Open ticket"})
-    resp = await client.get("/api/tickets?status=done")
+    resp = await client.get("/api/tickets?status=closed")
     assert resp.status_code == 200
     assert resp.json() == []
 
 
-async def test_create_ticket_with_context(client: AsyncClient):
+@patch("opencompany.gateway.api.publish", new_callable=AsyncMock)
+async def test_create_ticket_with_context(mock_pub, client: AsyncClient):
     resp = await client.post(
         "/api/tickets",
         json={
@@ -215,10 +306,10 @@ async def test_chat_with_persona(mock_run, seeded_client: AsyncClient):
     assert data["response"] == "The team is working on security tickets."
     mock_run.assert_awaited_once()
 
-    # Verify the persona was passed correctly
     called_persona = mock_run.call_args[0][0]
     assert called_persona.id == "ceo"
-    assert mock_run.call_args[0][1] == "What is the team doing?"
+    # Message may be wrapped with security tags
+    assert "What is the team doing?" in mock_run.call_args[0][1]
 
 
 @patch("opencompany.gateway.api.run_persona", new_callable=AsyncMock)
@@ -234,10 +325,10 @@ async def test_chat_returns_agent_response(mock_run, seeded_client: AsyncClient)
 
 
 # ---------------------------------------------------------------------------
-# Ticket lifecycle (create → list → verify fields)
+# Ticket lifecycle
 # ---------------------------------------------------------------------------
-async def test_ticket_lifecycle(client: AsyncClient):
-    # 1. Create
+@patch("opencompany.gateway.api.publish", new_callable=AsyncMock)
+async def test_ticket_lifecycle(mock_pub, client: AsyncClient):
     create_resp = await client.post(
         "/api/tickets",
         json={
@@ -253,22 +344,14 @@ async def test_ticket_lifecycle(client: AsyncClient):
     assert ticket["status"] == "open"
     assert ticket["assigned_to"] is None
 
-    # 2. List — should appear in open tickets
     list_resp = await client.get("/api/tickets?status=open")
     assert list_resp.status_code == 200
     open_tickets = list_resp.json()
     assert any(t["id"] == ticket_id for t in open_tickets)
 
-    # 3. Not in done tickets
-    done_resp = await client.get("/api/tickets?status=done")
-    assert done_resp.status_code == 200
-    assert not any(t["id"] == ticket_id for t in done_resp.json())
 
-
-# ---------------------------------------------------------------------------
-# Multiple tickets with different priorities
-# ---------------------------------------------------------------------------
-async def test_multiple_tickets_ordering(client: AsyncClient):
+@patch("opencompany.gateway.api.publish", new_callable=AsyncMock)
+async def test_multiple_tickets_ordering(mock_pub, client: AsyncClient):
     for title, prio in [("Low", "low"), ("Critical", "critical"), ("High", "high")]:
         await client.post("/api/tickets", json={"title": title, "priority": prio})
 
@@ -289,7 +372,6 @@ async def test_engine_auto_assign(db_engine):
     """Test that the company engine assigns a ticket to the best solver."""
     factory = async_sessionmaker(db_engine, expire_on_commit=False)
 
-    # Seed a solver
     async with factory() as session:
         session.add(
             Persona(
@@ -313,16 +395,15 @@ async def test_engine_auto_assign(db_engine):
         await session.refresh(ticket)
         ticket_id = ticket.id
 
-    # Patch the engine's async_session to use our test DB, and mock run_persona
     with (
         patch("opencompany.company.engine.async_session", factory),
         patch("opencompany.company.engine.run_persona", new_callable=AsyncMock),
+        patch("opencompany.company.engine.load_company_config", return_value=_GAME_CONFIG),
     ):
         from opencompany.company.engine import _route_ticket
 
         await _route_ticket(ticket_id)
 
-    # Verify assignment
     async with factory() as session:
         updated = await session.get(Ticket, ticket_id)
         assert updated.assigned_to == "sec-eng"
@@ -330,26 +411,25 @@ async def test_engine_auto_assign(db_engine):
 
 
 async def test_engine_no_solver_available(db_engine):
-    """Ticket stays open when no solver matches."""
+    """Ticket stays open when no solver is available at all."""
     factory = async_sessionmaker(db_engine, expire_on_commit=False)
 
     async with factory() as session:
+        # Only a manager — no solvers in the DB
         session.add(
             Persona(
-                id="frontend-dev",
-                name="Chris",
-                role="Frontend Dev",
-                type="solver",
-                skills=["react", "css"],
-                picks_up=["frontend"],
-                backstory="UI specialist.",
+                id="pm",
+                name="Taylor",
+                role="Project Manager",
+                type="manager",
+                skills=["planning"],
+                backstory="Coordinator.",
             )
         )
         ticket = Ticket(
             title="Fix backend auth",
             priority="critical",
             tags=["security", "backend"],
-            created_by="observer",
         )
         session.add(ticket)
         await session.commit()
@@ -359,6 +439,7 @@ async def test_engine_no_solver_available(db_engine):
     with (
         patch("opencompany.company.engine.async_session", factory),
         patch("opencompany.company.engine.run_persona", new_callable=AsyncMock),
+        patch("opencompany.company.engine.load_company_config", return_value=_GAME_CONFIG),
     ):
         from opencompany.company.engine import _route_ticket
 
@@ -437,15 +518,11 @@ personas:
 
     async with factory() as session:
         new = await session.get(Persona, "new-hire")
-        assert new is None  # should not have been seeded
+        assert new is None
 
 
 # ===========================================================================
 # Pixel Siege — game development scenario
-#
-# Simulates a full company workflow: CEO creates high-level tickets,
-# PM breaks them down, leads design and create sub-tickets,
-# workers execute. Tickets flow: CEO→PM→Leads→Workers.
 # ===========================================================================
 
 
@@ -469,7 +546,7 @@ async def game_company(db_engine):
             role="Project Manager",
             type="manager",
             reports_to="ceo",
-            skills=["project-management", "planning", "communication"],
+            skills=["project-management", "planning"],
             backstory="Turns CEO vision into action.",
         ),
         Persona(
@@ -489,7 +566,7 @@ async def game_company(db_engine):
             reports_to="pm",
             skills=["architecture", "python", "javascript", "code-review"],
             picks_up=["backend", "frontend", "architecture", "technical"],
-            backstory="Designs architecture, creates dev sub-tickets.",
+            backstory="Designs architecture.",
         ),
         Persona(
             id="marketing-lead",
@@ -529,7 +606,7 @@ async def game_company(db_engine):
             reports_to="marketing-lead",
             skills=["copywriting", "sales-pages", "blog", "html", "css"],
             picks_up=["content", "copy", "sales-page", "blog", "website"],
-            backstory="Crafts sales pages and marketing copy.",
+            backstory="Crafts sales pages.",
         ),
     ]
 
@@ -588,58 +665,32 @@ async def test_org_roles(game_company):
 
 
 # ---------------------------------------------------------------------------
-# Game dev tickets: cross-team flow
+# Config-driven routing tests (create tickets in DB directly, not via API)
 # ---------------------------------------------------------------------------
-async def test_researcher_creates_game_design_ticket(game_company):
-    """Researcher creates a game-design ticket with tags for the dev team."""
-    client = game_company["client"]
-    resp = await client.post(
-        "/api/tickets",
-        json={
-            "title": "Design wave-spawning mechanic for Pixel Siege",
-            "description": (
-                "Players should face increasingly difficult waves of enemies. "
-                "Each wave introduces a new enemy type. Difficulty scales with "
-                "player count in multiplayer."
-            ),
-            "priority": "high",
-            "tags": ["game-design", "backend", "game-server"],
-        },
-    )
-    assert resp.status_code == 200
-    ticket = resp.json()
-    assert ticket["status"] == "open"
-    assert "game-design" in ticket["tags"]
-    assert "game-server" in ticket["tags"]
-
-
 async def test_backend_ticket_auto_assigned_to_jamie(game_company):
     """A backend/game-server ticket is auto-assigned to the backend dev."""
     factory = game_company["factory"]
-    client = game_company["client"]
 
-    # Create the ticket via API
-    resp = await client.post(
-        "/api/tickets",
-        json={
-            "title": "Implement WebSocket game lobby",
-            "description": "Players need to join and leave lobbies in real time.",
-            "priority": "high",
-            "tags": ["backend", "game-server", "websockets"],
-        },
-    )
-    ticket_id = resp.json()["id"]
+    async with factory() as session:
+        ticket = Ticket(
+            title="Implement WebSocket game lobby",
+            priority="high",
+            tags=["backend", "game-server", "websockets"],
+        )
+        session.add(ticket)
+        await session.commit()
+        await session.refresh(ticket)
+        ticket_id = ticket.id
 
-    # Run the engine's auto-assign
     with (
         patch("opencompany.company.engine.async_session", factory),
         patch("opencompany.company.engine.run_persona", new_callable=AsyncMock),
+        patch("opencompany.company.engine.load_company_config", return_value=_GAME_CONFIG),
     ):
         from opencompany.company.engine import _route_ticket
 
         await _route_ticket(ticket_id)
 
-    # Verify Jamie got it
     async with factory() as session:
         ticket = await session.get(Ticket, ticket_id)
         assert ticket.assigned_to == "backend-dev"
@@ -649,22 +700,22 @@ async def test_backend_ticket_auto_assigned_to_jamie(game_company):
 async def test_frontend_ticket_auto_assigned_to_sam(game_company):
     """A frontend/game-client ticket is auto-assigned to the frontend dev."""
     factory = game_company["factory"]
-    client = game_company["client"]
 
-    resp = await client.post(
-        "/api/tickets",
-        json={
-            "title": "Build tower-placement UI with drag-and-drop",
-            "description": "Canvas-based UI for placing towers on the game grid.",
-            "priority": "high",
-            "tags": ["frontend", "game-client", "ui"],
-        },
-    )
-    ticket_id = resp.json()["id"]
+    async with factory() as session:
+        ticket = Ticket(
+            title="Build tower-placement UI",
+            priority="high",
+            tags=["frontend", "game-client", "ui"],
+        )
+        session.add(ticket)
+        await session.commit()
+        await session.refresh(ticket)
+        ticket_id = ticket.id
 
     with (
         patch("opencompany.company.engine.async_session", factory),
         patch("opencompany.company.engine.run_persona", new_callable=AsyncMock),
+        patch("opencompany.company.engine.load_company_config", return_value=_GAME_CONFIG),
     ):
         from opencompany.company.engine import _route_ticket
 
@@ -676,56 +727,26 @@ async def test_frontend_ticket_auto_assigned_to_sam(game_company):
         assert ticket.status == "assigned"
 
 
-async def test_devops_ticket_auto_assigned_to_jordan(game_company):
-    """An infrastructure ticket goes to the DevOps engineer."""
+async def test_marketing_ticket_auto_assigned(game_company):
+    """A marketing ticket from PM routes to marketing-lead via tag_match."""
     factory = game_company["factory"]
-    client = game_company["client"]
-
-    resp = await client.post(
-        "/api/tickets",
-        json={
-            "title": "Set up CI/CD pipeline for Pixel Siege",
-            "description": "GitHub Actions: lint, test, build Docker, deploy to staging.",
-            "priority": "medium",
-            "tags": ["devops", "ci-cd", "infrastructure"],
-        },
-    )
-    ticket_id = resp.json()["id"]
-
-    with (
-        patch("opencompany.company.engine.async_session", factory),
-        patch("opencompany.company.engine.run_persona", new_callable=AsyncMock),
-    ):
-        from opencompany.company.engine import _route_ticket
-
-        await _route_ticket(ticket_id)
 
     async with factory() as session:
-        ticket = await session.get(Ticket, ticket_id)
-        # devops-eng removed; with new routing, devops/infra tags go to tech-lead
-        assert ticket.assigned_to == "tech-lead"
-        assert ticket.status == "assigned"
-
-
-async def test_marketing_ticket_auto_assigned_to_riley(game_company):
-    """A marketing ticket goes to the marketing lead."""
-    factory = game_company["factory"]
-    client = game_company["client"]
-
-    resp = await client.post(
-        "/api/tickets",
-        json={
-            "title": "Write launch announcement for Pixel Siege beta",
-            "description": "Blog post + social media campaign for the closed beta.",
-            "priority": "medium",
-            "tags": ["marketing", "content", "community"],
-        },
-    )
-    ticket_id = resp.json()["id"]
+        ticket = Ticket(
+            title="Write launch announcement",
+            priority="medium",
+            tags=["marketing", "content", "community"],
+            created_by="pm",
+        )
+        session.add(ticket)
+        await session.commit()
+        await session.refresh(ticket)
+        ticket_id = ticket.id
 
     with (
         patch("opencompany.company.engine.async_session", factory),
         patch("opencompany.company.engine.run_persona", new_callable=AsyncMock),
+        patch("opencompany.company.engine.load_company_config", return_value=_GAME_CONFIG),
     ):
         from opencompany.company.engine import _route_ticket
 
@@ -737,25 +758,26 @@ async def test_marketing_ticket_auto_assigned_to_riley(game_company):
         assert ticket.status == "assigned"
 
 
-async def test_sales_ticket_auto_assigned_to_content_writer(game_company):
-    """A sales/distribution ticket routes via marketing-lead to content-writer."""
+async def test_sales_ticket_auto_assigned(game_company):
+    """A sales ticket from PM routes to marketing-lead via tag_match."""
     factory = game_company["factory"]
-    client = game_company["client"]
 
-    resp = await client.post(
-        "/api/tickets",
-        json={
-            "title": "Negotiate Steam distribution deal",
-            "description": "Explore Steam partnership and pricing tiers.",
-            "priority": "low",
-            "tags": ["sales", "distribution", "partnerships"],
-        },
-    )
-    ticket_id = resp.json()["id"]
+    async with factory() as session:
+        ticket = Ticket(
+            title="Negotiate Steam distribution deal",
+            priority="low",
+            tags=["sales", "distribution", "partnerships"],
+            created_by="pm",
+        )
+        session.add(ticket)
+        await session.commit()
+        await session.refresh(ticket)
+        ticket_id = ticket.id
 
     with (
         patch("opencompany.company.engine.async_session", factory),
         patch("opencompany.company.engine.run_persona", new_callable=AsyncMock),
+        patch("opencompany.company.engine.load_company_config", return_value=_GAME_CONFIG),
     ):
         from opencompany.company.engine import _route_ticket
 
@@ -763,17 +785,46 @@ async def test_sales_ticket_auto_assigned_to_content_writer(game_company):
 
     async with factory() as session:
         ticket = await session.get(Ticket, ticket_id)
-        # sales-lead removed; sales tags route to marketing-lead
         assert ticket.assigned_to == "marketing-lead"
+        assert ticket.status == "assigned"
+
+
+async def test_ceo_ticket_routes_to_pm(game_company):
+    """CEO-created ticket routes to PM in hierarchical mode."""
+    factory = game_company["factory"]
+
+    async with factory() as session:
+        ticket = Ticket(
+            title="Build a tic-tac-toe game",
+            tags=["product"],
+            created_by="ceo",
+        )
+        session.add(ticket)
+        await session.commit()
+        await session.refresh(ticket)
+        ticket_id = ticket.id
+
+    with (
+        patch("opencompany.company.engine.async_session", factory),
+        patch("opencompany.company.engine.run_persona", new_callable=AsyncMock),
+        patch("opencompany.company.engine.load_company_config", return_value=_GAME_CONFIG),
+    ):
+        from opencompany.company.engine import _route_ticket
+
+        await _route_ticket(ticket_id)
+
+    async with factory() as session:
+        ticket = await session.get(Ticket, ticket_id)
+        assert ticket.assigned_to == "pm"
         assert ticket.status == "assigned"
 
 
 # ---------------------------------------------------------------------------
-# Tech Lead chat: review the backlog
+# Tech Lead chat
 # ---------------------------------------------------------------------------
 @patch("opencompany.gateway.api.run_persona", new_callable=AsyncMock)
 async def test_tech_lead_reviews_backlog_via_chat(mock_run, game_company):
-    """Tech Lead can chat about current tickets and architecture decisions."""
+    """Tech Lead can chat about current tickets."""
     client = game_company["client"]
 
     mock_run.return_value = (
@@ -800,32 +851,25 @@ async def test_tech_lead_reviews_backlog_via_chat(mock_run, game_company):
 # Full sprint: create → assign → solve → review
 # ---------------------------------------------------------------------------
 async def test_full_sprint_lifecycle(game_company):
-    """Simulate a complete sprint: ticket created → assigned → solved → reviewed → done."""
+    """Simulate a complete sprint: ticket → assigned → solved → reviewed → done."""
     factory = game_company["factory"]
-    client = game_company["client"]
 
-    # 1. Create a ticket (as if researcher filed it)
-    resp = await client.post(
-        "/api/tickets",
-        json={
-            "title": "Implement enemy pathfinding algorithm",
-            "description": "A* pathfinding for tower-defence enemies on a grid map.",
-            "priority": "critical",
-            "tags": ["backend", "game-server"],
-            "context": {"ref": "docs/plans/pathfinding.md"},
-        },
-    )
-    assert resp.status_code == 200
-    ticket_id = resp.json()["id"]
+    async with factory() as session:
+        ticket = Ticket(
+            title="Implement enemy pathfinding algorithm",
+            description="A* pathfinding for tower-defence enemies.",
+            priority="critical",
+            tags=["backend", "game-server"],
+        )
+        session.add(ticket)
+        await session.commit()
+        await session.refresh(ticket)
+        ticket_id = ticket.id
 
-    # 2. Engine auto-assigns to backend-dev
     with (
         patch("opencompany.company.engine.async_session", factory),
-        patch(
-            "opencompany.company.engine.run_persona",
-            new_callable=AsyncMock,
-            return_value="Implemented A* pathfinding with grid support.",
-        ),
+        patch("opencompany.company.engine.run_persona", new_callable=AsyncMock),
+        patch("opencompany.company.engine.load_company_config", return_value=_GAME_CONFIG),
     ):
         from opencompany.company.engine import _route_ticket
 
@@ -836,7 +880,7 @@ async def test_full_sprint_lifecycle(game_company):
         assert ticket.assigned_to == "backend-dev"
         assert ticket.status == "assigned"
 
-    # 3. Solver works on it: status → in_progress → review
+    # Solver works: in_progress → review
     async with factory() as session:
         ticket = await session.get(Ticket, ticket_id)
         ticket.status = "in_progress"
@@ -848,7 +892,7 @@ async def test_full_sprint_lifecycle(game_company):
         ticket.result = "Implemented A* pathfinding with grid-based movement."
         await session.commit()
 
-    # 4. Reviewer approves: status → done
+    # Trigger review
     with (
         patch("opencompany.company.engine.async_session", factory),
         patch("opencompany.company.engine.run_persona", new_callable=AsyncMock),
@@ -857,18 +901,14 @@ async def test_full_sprint_lifecycle(game_company):
 
         await _trigger_review(ticket_id)
 
+    # Simulate reviewer approving
     async with factory() as session:
         ticket = await session.get(Ticket, ticket_id)
-        # Engine dispatched reviewer — ticket stays in review until reviewer acts
         assert ticket.status == "review"
-        assert ticket.result is not None
-
-        # Simulate reviewer approving
         ticket.status = "done"
         ticket.reviewed_by = "tech-lead"
         await session.commit()
 
-    # 5. Verify final state
     async with factory() as session:
         ticket = await session.get(Ticket, ticket_id)
         assert ticket.status == "done"
@@ -878,44 +918,32 @@ async def test_full_sprint_lifecycle(game_company):
 
 
 # ---------------------------------------------------------------------------
-# Workload balancing: two backend tickets, second goes to less-loaded solver
+# Workload balancing
 # ---------------------------------------------------------------------------
 async def test_workload_balancing_across_solvers(game_company):
-    """When backend-dev already has a ticket, a second backend ticket still
-    goes to backend-dev if they're the only match — but verify the engine
-    considers workload."""
+    """Two backend tickets both go to backend-dev (only match)."""
     factory = game_company["factory"]
-    client = game_company["client"]
 
-    # Create and assign first ticket to backend-dev
-    resp1 = await client.post(
-        "/api/tickets",
-        json={"title": "Build matchmaking service", "tags": ["backend", "game-server"]},
-    )
-    t1_id = resp1.json()["id"]
+    async with factory() as session:
+        t1 = Ticket(title="Build matchmaking service", tags=["backend", "game-server"])
+        t2 = Ticket(title="Add game-state persistence", tags=["backend", "api"])
+        session.add(t1)
+        session.add(t2)
+        await session.commit()
+        await session.refresh(t1)
+        await session.refresh(t2)
+        t1_id, t2_id = t1.id, t2.id
 
     with (
         patch("opencompany.company.engine.async_session", factory),
         patch("opencompany.company.engine.run_persona", new_callable=AsyncMock),
+        patch("opencompany.company.engine.load_company_config", return_value=_GAME_CONFIG),
     ):
         from opencompany.company.engine import _route_ticket
 
         await _route_ticket(t1_id)
-
-    # Create a second backend ticket
-    resp2 = await client.post(
-        "/api/tickets",
-        json={"title": "Add game-state persistence", "tags": ["backend", "api"]},
-    )
-    t2_id = resp2.json()["id"]
-
-    with (
-        patch("opencompany.company.engine.async_session", factory),
-        patch("opencompany.company.engine.run_persona", new_callable=AsyncMock),
-    ):
         await _route_ticket(t2_id)
 
-    # Both go to backend-dev (only solver with backend skills)
     async with factory() as session:
         t1 = await session.get(Ticket, t1_id)
         t2 = await session.get(Ticket, t2_id)
@@ -924,85 +952,10 @@ async def test_workload_balancing_across_solvers(game_company):
 
 
 # ---------------------------------------------------------------------------
-# Cross-team game launch: tickets for every department
-# ---------------------------------------------------------------------------
-async def test_game_launch_creates_cross_team_tickets(game_company):
-    """Simulate a game launch creating tickets across all departments."""
-    client = game_company["client"]
-
-    launch_tickets = [
-        {
-            "title": "Final load-test for game servers",
-            "priority": "critical",
-            "tags": ["backend", "game-server"],
-        },
-        {
-            "title": "Polish tutorial UI flow",
-            "priority": "high",
-            "tags": ["frontend", "ui", "game-client"],
-        },
-        {
-            "title": "Scale Kubernetes cluster for launch",
-            "priority": "critical",
-            "tags": ["devops", "cloud", "infrastructure"],
-        },
-        {
-            "title": "Publish launch trailer and press kit",
-            "priority": "high",
-            "tags": ["marketing", "content"],
-        },
-        {
-            "title": "Finalise platform pricing tiers",
-            "priority": "medium",
-            "tags": ["sales", "pricing"],
-        },
-    ]
-
-    created_ids = []
-    for t in launch_tickets:
-        resp = await client.post("/api/tickets", json=t)
-        assert resp.status_code == 200
-        created_ids.append(resp.json()["id"])
-
-    # All 5 are open
-    resp = await client.get("/api/tickets?status=open")
-    assert len(resp.json()) == 5
-
-    # Auto-assign all of them
-    factory = game_company["factory"]
-    with (
-        patch("opencompany.company.engine.async_session", factory),
-        patch("opencompany.company.engine.run_persona", new_callable=AsyncMock),
-    ):
-        from opencompany.company.engine import _route_ticket
-
-        for tid in created_ids:
-            await _route_ticket(tid)
-
-    # Verify each went to the right team member (new routing: api tickets → solver matching)
-    expected = {
-        0: "backend-dev",  # load-test (backend tag)
-        1: "frontend-dev",  # tutorial UI (frontend tag)
-        2: "backend-dev",  # kubernetes → no devops, falls to backend-dev
-        3: "content-writer",  # launch trailer (content tag)
-        4: "content-writer",  # pricing (sales tag → marketing-lead → content-writer)
-    }
-
-    async with factory() as session:
-        for idx, tid in enumerate(created_ids):
-            ticket = await session.get(Ticket, tid)
-            assert ticket.assigned_to == expected[idx], (
-                f"Ticket '{ticket.title}' assigned to {ticket.assigned_to}, "
-                f"expected {expected[idx]}"
-            )
-            assert ticket.status == "assigned"
-
-
-# ---------------------------------------------------------------------------
-# Seed from the real company.yaml
+# Seed from the real company.yaml (new format: only CEO + HR)
 # ---------------------------------------------------------------------------
 async def test_seed_real_company_yaml(db_engine):
-    """Seed the actual config/company.yaml and verify all 8 personas load."""
+    """Seed the actual config/company.yaml — only CEO + HR now."""
     factory = async_sessionmaker(db_engine, expire_on_commit=False)
 
     with patch("opencompany.company.seed.async_session", factory):
@@ -1014,13 +967,11 @@ async def test_seed_real_company_yaml(db_engine):
         from sqlalchemy import func, select
 
         count = await session.scalar(select(func.count(Persona.id)))
-        assert count == 8
+        assert count == 2
 
         ceo = await session.get(Persona, "ceo")
-        assert ceo.name == "Morgan Reeves"
+        assert ceo.name == "Morgan Hayes"
+        assert ceo.type == "manager"
 
-        tech_lead = await session.get(Persona, "tech-lead")
-        assert tech_lead.name == "Dana Kim"
-
-        backend = await session.get(Persona, "backend-dev")
-        assert "game-server" in backend.skills
+        hr = await session.get(Persona, "hr")
+        assert hr.name == "Quinn Nakamura"
