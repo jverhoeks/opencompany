@@ -219,6 +219,7 @@ async def _assign_to_solver(ticket: Ticket, session) -> None:
             persona,
             _build_task_prompt(ticket),
             f"solve-ticket-{ticket.id}",
+            ticket_id=ticket.id,
         )
 
 
@@ -230,10 +231,14 @@ def _build_task_prompt(ticket: Ticket) -> str:
         f"Priority: {ticket.priority}\n"
         f"Tags: {', '.join(ticket.tags)}\n"
         f"Context: {ticket.context}\n\n"
-        "Do the work for this ticket. If it involves writing code, documents, "
-        "or any content, use write_file to save your output to the workspace. "
-        "When done, call update_ticket with your result summary and set "
-        "status to 'review'."
+        f"INSTRUCTIONS:\n"
+        f"1. Do the work described in this ticket.\n"
+        f"2. ALWAYS use write_file to save your output (code, documents, etc.) "
+        f"to the workspace. Do NOT just return code as text.\n"
+        f"3. When done, call update_ticket with ticket_id={ticket.id}, "
+        f"a brief result summary, and status='review'.\n"
+        f"4. Keep deliverables focused: runnable code files, HTML pages, "
+        f"or markdown docs. No cloud infra or deployment configs."
     )
 
 
@@ -304,12 +309,15 @@ async def _trigger_review(ticket_id: int):
         _spawn_persona_task(reviewer, task, f"review-ticket-{ticket.id}")
 
 
-def _spawn_persona_task(persona: Persona, task: str, label: str):
+def _spawn_persona_task(persona: Persona, task: str, label: str, ticket_id: int | None = None):
     """Fire-and-forget an async persona run with state tracking."""
 
     async def _run():
         try:
             await set_persona_state(persona.id, "working")
+            # Set ticket to in_progress when solver starts working
+            if ticket_id:
+                await _set_ticket_in_progress(ticket_id, persona.id)
             await run_persona(persona, task)
         except Exception:
             logger.exception("Background persona task %s failed", label)
@@ -321,6 +329,26 @@ def _spawn_persona_task(persona: Persona, task: str, label: str):
     _running_tasks.add(t)
     t.add_done_callback(_running_tasks.discard)
     logger.info("Spawned background task: %s", label)
+
+
+async def _set_ticket_in_progress(ticket_id: int, persona_id: str) -> None:
+    """Mark a ticket as in_progress when a solver starts working on it."""
+    async with async_session() as session:
+        ticket = await session.get(Ticket, ticket_id)
+        if ticket and ticket.status in ("assigned", "open"):
+            ticket.status = "in_progress"
+            log = WorkLog(
+                persona_id=persona_id,
+                action="started",
+                ticket_id=ticket_id,
+            )
+            session.add(log)
+            await session.commit()
+            logger.info(
+                "Ticket #%d now in_progress (solver %s started)",
+                ticket_id,
+                persona_id,
+            )
 
 
 async def _escalate_to_ceo(ticket: Ticket, session) -> None:
