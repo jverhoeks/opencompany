@@ -67,6 +67,17 @@ def build_system_prompt(
             "  escalate. If no one can handle a domain, hire for it."
         )
 
+    # HR-specific: always stay on top of hiring/firing tickets
+    if persona.id == "hr":
+        sections.append(
+            "\nHR PRIORITY:\n"
+            "- ALWAYS check list_tickets for open HR/hiring/firing tickets first.\n"
+            "- Never leave an HR ticket unattended — process it immediately.\n"
+            "- After completing a hire or fire, check again for more HR tickets.\n"
+            "- If a hiring request is unclear, use the role catalog to pick the\n"
+            "  best match. Do NOT contact the overseer — decide autonomously."
+        )
+
     return "\n".join(sections)
 
 
