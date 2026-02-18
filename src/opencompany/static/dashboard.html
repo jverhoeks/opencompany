@@ -244,16 +244,20 @@ body::before {
   color: var(--text-main);
 }
 .chat-msg-sender { font-family: var(--font-mono); font-size: 9px; color: var(--text-dim); margin-bottom: 3px; }
-.chat-input-row {
-  display: flex; gap: 6px; padding: 10px 12px; border-top: 1px solid var(--border);
+.chat-input-area {
+  border-top: 1px solid var(--border); padding: 8px 12px;
+  display: flex; flex-direction: column; gap: 6px;
 }
 .chat-select {
   font-family: var(--font-mono); font-size: 11px; padding: 6px 8px;
   background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px;
-  color: var(--text-main); min-width: 100px;
+  color: var(--text-main); width: 100%;
+}
+.chat-input-row {
+  display: flex; gap: 6px;
 }
 .chat-input {
-  flex: 1; font-family: var(--font-body); font-size: 12px; padding: 6px 10px;
+  flex: 1; min-width: 0; font-family: var(--font-body); font-size: 12px; padding: 6px 10px;
   background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px;
   color: var(--text-main); outline: none; transition: border 0.15s;
 }
@@ -262,6 +266,7 @@ body::before {
   font-family: var(--font-display); font-size: 10px; padding: 6px 14px;
   background: var(--cyan); color: var(--bg-deep); border: none; border-radius: 6px;
   cursor: pointer; letter-spacing: 1px; font-weight: 700; transition: opacity 0.15s;
+  flex-shrink: 0;
 }
 .chat-send:hover { opacity: 0.85; }
 .chat-send:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -371,10 +376,12 @@ body::before {
           <div class="typing-dots"><span></span><span></span><span></span></div>
           <span>Thinking...</span>
         </div>
-        <div class="chat-input-row">
+        <div class="chat-input-area">
           <select class="chat-select" id="chatPersona"></select>
-          <input class="chat-input" id="chatInput" placeholder="Send a message..." />
-          <button class="chat-send" id="chatSend">SEND</button>
+          <div class="chat-input-row">
+            <input class="chat-input" id="chatInput" placeholder="Send a message..." />
+            <button class="chat-send" id="chatSend">SEND</button>
+          </div>
         </div>
       </div>
       <div class="feed-pane" id="overseerPane">
@@ -801,6 +808,8 @@ body::before {
   }
 
   function renderOverseer() {
+    // Don't re-render if the user is typing a reply — it would destroy their input
+    if (overseerListEl.querySelector('.overseer-reply-input:focus')) return;
     clearChildren(overseerListEl);
     const pending = overseerMessages.filter(m => !m.reply);
     if (pending.length > 0) {

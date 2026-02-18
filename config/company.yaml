@@ -37,9 +37,15 @@ roles:
     responsibilities: |
       Set strategic direction. Create high-level goals as tickets.
       Tag tickets to hint at department: product, marketing, hr.
+      Decide what roles and people the company needs — YOU make hiring
+      decisions. Create HR-tagged tickets specifying which role to hire
+      and what skills are needed. Do NOT ask the overseer for guidance
+      on hiring — that is YOUR job as CEO.
     constraints: |
       Do NOT break tickets into sub-tasks — delegate to PM.
       Request HR to hire/fire via HR-tagged tickets.
+      Only use contact_overseer when the overseer's instructions are
+      unclear or ambiguous — never to ask what to do next.
     tools:
       - create_ticket
       - list_tickets
