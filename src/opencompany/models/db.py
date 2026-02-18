@@ -23,7 +23,8 @@ class Persona(Base):
     tools: Mapped[list] = mapped_column(JSONB, default_factory=list)
     model_id: Mapped[str | None] = mapped_column(default=None)
     backstory: Mapped[str] = mapped_column(default="")
-    status: Mapped[str] = mapped_column(default="active", index=True)
+    status: Mapped[str] = mapped_column(default="active", index=True)  # active | fired
+    activity_state: Mapped[str] = mapped_column(default="idle")  # idle | working | blocked
     created_by: Mapped[str | None] = mapped_column(default=None)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -86,4 +87,21 @@ class WorkLog(Base):
         DateTime(timezone=True),
         default_factory=lambda: datetime.now(UTC),
         index=True,
+    )
+
+
+class OverseerMessage(Base):
+    __tablename__ = "overseer_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True, init=False, autoincrement=True)
+    persona_id: Mapped[str] = mapped_column(ForeignKey("personas.id"), index=True)
+    message: Mapped[str]
+    reply: Mapped[str | None] = mapped_column(default=None)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default_factory=lambda: datetime.now(UTC),
+    )
+    replied_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        default=None,
     )

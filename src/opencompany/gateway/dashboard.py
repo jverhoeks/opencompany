@@ -1,4 +1,4 @@
-"""Dashboard API: aggregated overview + SSE stream + control tower UI."""
+"""Dashboard API: aggregated overview + SSE stream + overseer + control tower UI."""
 
 import asyncio
 import json
@@ -8,6 +8,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,7 +26,10 @@ WORKSPACE_DIR = Path("workspaces").resolve()
 
 async def _get_overview_data(session: AsyncSession) -> dict:
     """Fetch aggregated dashboard data (shared by REST and SSE endpoints)."""
-    persona_result = await session.execute(select(Persona).where(Persona.status == "active"))
+    # Include all personas (active + fired) for display
+    persona_result = await session.execute(
+        select(Persona).where(Persona.status.in_(["active", "fired"]))
+    )
     personas = persona_result.scalars().all()
 
     # SQL-level status counts instead of Python-side loop
@@ -85,6 +89,8 @@ async def _get_overview_data(session: AsyncSession) -> dict:
                 "role": p.role,
                 "type": p.type,
                 "skills": p.skills,
+                "status": p.status,
+                "activity_state": p.activity_state,
                 "workload": workloads.get(p.id, 0),
                 "created": created_counts.get(p.id, 0),
                 "done": done_counts.get(p.id, 0),
@@ -152,3 +158,47 @@ async def dashboard_stream(session: AsyncSession = Depends(get_session)):
             await asyncio.sleep(3)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+# --- Overseer endpoints ---
+
+
+@router.get("/api/overseer/messages")
+async def overseer_list_messages():
+    """List overseer messages."""
+    from opencompany.company.overseer import list_messages
+
+    return await list_messages()
+
+
+class OverseerReply(BaseModel):
+    reply: str
+
+
+@router.post("/api/overseer/messages/{message_id}/reply")
+async def overseer_reply(message_id: int, body: OverseerReply):
+    """Reply to an overseer message and trigger the persona to process the response."""
+    from opencompany.company.overseer import reply_to_message
+
+    msg = await reply_to_message(message_id, body.reply)
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    # Trigger the persona to process the reply
+    from opencompany.company.engine import _spawn_persona_task
+    from opencompany.models.db import Persona
+    from opencompany.models.engine import async_session
+
+    async with async_session() as sess:
+        persona = await sess.get(Persona, msg.persona_id)
+
+    if persona:
+        task = (
+            f"The human overseer replied to your message:\n\n"
+            f"Your original message: {msg.message}\n"
+            f"Overseer reply: {msg.reply}\n\n"
+            "Process this reply and take appropriate action."
+        )
+        _spawn_persona_task(persona, task, f"overseer-reply-{message_id}")
+
+    return {"status": "ok", "message_id": message_id}

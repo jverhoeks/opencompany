@@ -7,14 +7,14 @@ def test_build_system_prompt():
         id="security-analyst",
         name="Sarah Chen",
         role="Security Analyst",
-        type="observer",
+        type="solver",
         skills=["security"],
         backstory="Senior security engineer with 10 years experience.",
     )
     prompt = build_system_prompt(p)
     assert "Sarah Chen" in prompt
     assert "Security Analyst" in prompt
-    assert "observer" in prompt
+    assert "solver" in prompt
     assert "Senior security engineer" in prompt
 
 

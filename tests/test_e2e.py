@@ -318,9 +318,9 @@ async def test_engine_auto_assign(db_engine):
         patch("opencompany.company.engine.async_session", factory),
         patch("opencompany.company.engine.run_persona", new_callable=AsyncMock),
     ):
-        from opencompany.company.engine import _auto_assign_ticket
+        from opencompany.company.engine import _route_ticket
 
-        await _auto_assign_ticket(ticket_id)
+        await _route_ticket(ticket_id)
 
     # Verify assignment
     async with factory() as session:
@@ -360,9 +360,9 @@ async def test_engine_no_solver_available(db_engine):
         patch("opencompany.company.engine.async_session", factory),
         patch("opencompany.company.engine.run_persona", new_callable=AsyncMock),
     ):
-        from opencompany.company.engine import _auto_assign_ticket
+        from opencompany.company.engine import _route_ticket
 
-        await _auto_assign_ticket(ticket_id)
+        await _route_ticket(ticket_id)
 
     async with factory() as session:
         updated = await session.get(Ticket, ticket_id)
@@ -443,10 +443,9 @@ personas:
 # ===========================================================================
 # Pixel Siege — game development scenario
 #
-# Simulates a full company workflow: researcher creates a game-design
-# ticket, engine auto-assigns it to the right solver, CTO reviews via
-# chat, and tickets flow across teams (backend, frontend, devops,
-# marketing, sales).
+# Simulates a full company workflow: CEO creates high-level tickets,
+# PM breaks them down, leads design and create sub-tickets,
+# workers execute. Tickets flow: CEO→PM→Leads→Workers.
 # ===========================================================================
 
 
@@ -465,34 +464,49 @@ async def game_company(db_engine):
             backstory="Founded NovaCraft Studios.",
         ),
         Persona(
-            id="cto",
-            name="Dana Kim",
-            role="CTO",
+            id="pm",
+            name="Taylor Brooks",
+            role="Project Manager",
             type="manager",
-            skills=["architecture", "python", "cloud", "code-review"],
-            backstory="Technical conscience of the company.",
+            reports_to="ceo",
+            skills=["project-management", "planning", "communication"],
+            backstory="Turns CEO vision into action.",
         ),
         Persona(
-            id="researcher",
-            name="Priya Sharma",
-            role="Research Lead",
-            type="observer",
-            skills=["research", "game-design", "ux"],
-            backstory="Analyses competitor games.",
+            id="hr",
+            name="Quinn Nakamura",
+            role="HR Manager",
+            type="manager",
+            reports_to="ceo",
+            skills=["hiring", "team-management"],
+            backstory="People-first HR manager.",
         ),
         Persona(
-            id="lead-dev",
-            name="Alex Rivera",
-            role="Lead Developer",
-            type="observer",
-            skills=["python", "javascript", "code-review"],
-            backstory="Sets coding standards.",
+            id="tech-lead",
+            name="Dana Kim",
+            role="Tech Lead",
+            type="manager",
+            reports_to="pm",
+            skills=["architecture", "python", "javascript", "code-review"],
+            picks_up=["backend", "frontend", "architecture", "technical"],
+            backstory="Designs architecture, creates dev sub-tickets.",
+        ),
+        Persona(
+            id="marketing-lead",
+            name="Riley Cooper",
+            role="Marketing Lead",
+            type="manager",
+            reports_to="pm",
+            skills=["marketing", "content", "social-media", "growth"],
+            picks_up=["marketing", "content", "growth", "community", "sales"],
+            backstory="Builds launch strategies.",
         ),
         Persona(
             id="backend-dev",
             name="Jamie Park",
             role="Backend Developer",
             type="solver",
+            reports_to="tech-lead",
             skills=["python", "backend", "api", "game-server", "websockets"],
             picks_up=["backend", "api", "game-server"],
             backstory="Builds game backends.",
@@ -502,36 +516,20 @@ async def game_company(db_engine):
             name="Sam Chen",
             role="Frontend Developer",
             type="solver",
+            reports_to="tech-lead",
             skills=["javascript", "frontend", "ui", "game-client", "canvas"],
             picks_up=["frontend", "ui", "game-client"],
             backstory="Builds game UIs.",
         ),
         Persona(
-            id="devops-eng",
-            name="Jordan Taylor",
-            role="DevOps Engineer",
-            type="solver",
-            skills=["devops", "cloud", "docker", "ci-cd", "monitoring"],
-            picks_up=["devops", "cloud", "infrastructure", "ci-cd"],
-            backstory="Automates everything.",
-        ),
-        Persona(
-            id="marketing-lead",
-            name="Riley Cooper",
-            role="Marketing Lead",
-            type="solver",
-            skills=["marketing", "content", "social-media", "growth"],
-            picks_up=["marketing", "content", "growth", "community"],
-            backstory="Builds launch strategies.",
-        ),
-        Persona(
-            id="sales-lead",
+            id="content-writer",
             name="Casey Martinez",
-            role="Sales Lead",
+            role="Content Writer",
             type="solver",
-            skills=["sales", "partnerships", "pricing", "distribution"],
-            picks_up=["sales", "partnerships", "pricing", "distribution"],
-            backstory="Finds distribution channels.",
+            reports_to="marketing-lead",
+            skills=["copywriting", "sales-pages", "blog", "html", "css"],
+            picks_up=["content", "copy", "sales-page", "blog", "website"],
+            backstory="Crafts sales pages and marketing copy.",
         ),
     ]
 
@@ -561,34 +559,32 @@ async def game_company(db_engine):
 # Org chart
 # ---------------------------------------------------------------------------
 async def test_full_org_is_seeded(game_company):
-    """All 9 NovaCraft personas are present and active."""
+    """All 8 NovaCraft personas are present and active."""
     client = game_company["client"]
     resp = await client.get("/api/personas")
     assert resp.status_code == 200
     personas = resp.json()
-    assert len(personas) == 9
+    assert len(personas) == 8
     ids = {p["id"] for p in personas}
     assert ids == {
         "ceo",
-        "cto",
-        "researcher",
-        "lead-dev",
+        "pm",
+        "hr",
+        "tech-lead",
         "backend-dev",
         "frontend-dev",
-        "devops-eng",
         "marketing-lead",
-        "sales-lead",
+        "content-writer",
     }
 
 
 async def test_org_roles(game_company):
-    """Verify persona types line up: 2 managers, 2 observers, 5 solvers."""
+    """Verify persona types: 5 managers, 3 solvers."""
     client = game_company["client"]
     resp = await client.get("/api/personas")
     types = [p["type"] for p in resp.json()]
-    assert types.count("manager") == 2
-    assert types.count("observer") == 2
-    assert types.count("solver") == 5
+    assert types.count("manager") == 5
+    assert types.count("solver") == 3
 
 
 # ---------------------------------------------------------------------------
@@ -639,9 +635,9 @@ async def test_backend_ticket_auto_assigned_to_jamie(game_company):
         patch("opencompany.company.engine.async_session", factory),
         patch("opencompany.company.engine.run_persona", new_callable=AsyncMock),
     ):
-        from opencompany.company.engine import _auto_assign_ticket
+        from opencompany.company.engine import _route_ticket
 
-        await _auto_assign_ticket(ticket_id)
+        await _route_ticket(ticket_id)
 
     # Verify Jamie got it
     async with factory() as session:
@@ -670,9 +666,9 @@ async def test_frontend_ticket_auto_assigned_to_sam(game_company):
         patch("opencompany.company.engine.async_session", factory),
         patch("opencompany.company.engine.run_persona", new_callable=AsyncMock),
     ):
-        from opencompany.company.engine import _auto_assign_ticket
+        from opencompany.company.engine import _route_ticket
 
-        await _auto_assign_ticket(ticket_id)
+        await _route_ticket(ticket_id)
 
     async with factory() as session:
         ticket = await session.get(Ticket, ticket_id)
@@ -700,13 +696,14 @@ async def test_devops_ticket_auto_assigned_to_jordan(game_company):
         patch("opencompany.company.engine.async_session", factory),
         patch("opencompany.company.engine.run_persona", new_callable=AsyncMock),
     ):
-        from opencompany.company.engine import _auto_assign_ticket
+        from opencompany.company.engine import _route_ticket
 
-        await _auto_assign_ticket(ticket_id)
+        await _route_ticket(ticket_id)
 
     async with factory() as session:
         ticket = await session.get(Ticket, ticket_id)
-        assert ticket.assigned_to == "devops-eng"
+        # devops-eng removed; with new routing, devops/infra tags go to tech-lead
+        assert ticket.assigned_to == "tech-lead"
         assert ticket.status == "assigned"
 
 
@@ -730,9 +727,9 @@ async def test_marketing_ticket_auto_assigned_to_riley(game_company):
         patch("opencompany.company.engine.async_session", factory),
         patch("opencompany.company.engine.run_persona", new_callable=AsyncMock),
     ):
-        from opencompany.company.engine import _auto_assign_ticket
+        from opencompany.company.engine import _route_ticket
 
-        await _auto_assign_ticket(ticket_id)
+        await _route_ticket(ticket_id)
 
     async with factory() as session:
         ticket = await session.get(Ticket, ticket_id)
@@ -740,8 +737,8 @@ async def test_marketing_ticket_auto_assigned_to_riley(game_company):
         assert ticket.status == "assigned"
 
 
-async def test_sales_ticket_auto_assigned_to_casey(game_company):
-    """A sales/distribution ticket goes to the sales lead."""
+async def test_sales_ticket_auto_assigned_to_content_writer(game_company):
+    """A sales/distribution ticket routes via marketing-lead to content-writer."""
     factory = game_company["factory"]
     client = game_company["client"]
 
@@ -760,27 +757,28 @@ async def test_sales_ticket_auto_assigned_to_casey(game_company):
         patch("opencompany.company.engine.async_session", factory),
         patch("opencompany.company.engine.run_persona", new_callable=AsyncMock),
     ):
-        from opencompany.company.engine import _auto_assign_ticket
+        from opencompany.company.engine import _route_ticket
 
-        await _auto_assign_ticket(ticket_id)
+        await _route_ticket(ticket_id)
 
     async with factory() as session:
         ticket = await session.get(Ticket, ticket_id)
-        assert ticket.assigned_to == "sales-lead"
+        # sales-lead removed; sales tags route to marketing-lead
+        assert ticket.assigned_to == "marketing-lead"
         assert ticket.status == "assigned"
 
 
 # ---------------------------------------------------------------------------
-# CTO chat: review the backlog
+# Tech Lead chat: review the backlog
 # ---------------------------------------------------------------------------
 @patch("opencompany.gateway.api.run_persona", new_callable=AsyncMock)
-async def test_cto_reviews_backlog_via_chat(mock_run, game_company):
-    """CTO can chat about current tickets and architecture decisions."""
+async def test_tech_lead_reviews_backlog_via_chat(mock_run, game_company):
+    """Tech Lead can chat about current tickets and architecture decisions."""
     client = game_company["client"]
 
     mock_run.return_value = (
         "We have 3 open tickets: WebSocket lobby (backend), "
-        "tower-placement UI (frontend), and CI/CD pipeline (devops). "
+        "tower-placement UI (frontend), and marketing launch. "
         "I recommend we prioritise the lobby since multiplayer is the "
         "core feature."
     )
@@ -788,14 +786,14 @@ async def test_cto_reviews_backlog_via_chat(mock_run, game_company):
     resp = await client.post(
         "/api/chat",
         json={
-            "persona_id": "cto",
+            "persona_id": "tech-lead",
             "message": "What should we work on first for Pixel Siege?",
         },
     )
     assert resp.status_code == 200
     data = resp.json()
     assert "lobby" in data["response"].lower()
-    assert mock_run.call_args[0][0].id == "cto"
+    assert mock_run.call_args[0][0].id == "tech-lead"
 
 
 # ---------------------------------------------------------------------------
@@ -829,9 +827,9 @@ async def test_full_sprint_lifecycle(game_company):
             return_value="Implemented A* pathfinding with grid support.",
         ),
     ):
-        from opencompany.company.engine import _auto_assign_ticket
+        from opencompany.company.engine import _route_ticket
 
-        await _auto_assign_ticket(ticket_id)
+        await _route_ticket(ticket_id)
 
     async with factory() as session:
         ticket = await session.get(Ticket, ticket_id)
@@ -867,7 +865,7 @@ async def test_full_sprint_lifecycle(game_company):
 
         # Simulate reviewer approving
         ticket.status = "done"
-        ticket.reviewed_by = "lead-dev"
+        ticket.reviewed_by = "tech-lead"
         await session.commit()
 
     # 5. Verify final state
@@ -875,7 +873,7 @@ async def test_full_sprint_lifecycle(game_company):
         ticket = await session.get(Ticket, ticket_id)
         assert ticket.status == "done"
         assert ticket.assigned_to == "backend-dev"
-        assert ticket.reviewed_by == "lead-dev"
+        assert ticket.reviewed_by == "tech-lead"
         assert "A*" in ticket.result
 
 
@@ -900,9 +898,9 @@ async def test_workload_balancing_across_solvers(game_company):
         patch("opencompany.company.engine.async_session", factory),
         patch("opencompany.company.engine.run_persona", new_callable=AsyncMock),
     ):
-        from opencompany.company.engine import _auto_assign_ticket
+        from opencompany.company.engine import _route_ticket
 
-        await _auto_assign_ticket(t1_id)
+        await _route_ticket(t1_id)
 
     # Create a second backend ticket
     resp2 = await client.post(
@@ -915,7 +913,7 @@ async def test_workload_balancing_across_solvers(game_company):
         patch("opencompany.company.engine.async_session", factory),
         patch("opencompany.company.engine.run_persona", new_callable=AsyncMock),
     ):
-        await _auto_assign_ticket(t2_id)
+        await _route_ticket(t2_id)
 
     # Both go to backend-dev (only solver with backend skills)
     async with factory() as session:
@@ -976,18 +974,18 @@ async def test_game_launch_creates_cross_team_tickets(game_company):
         patch("opencompany.company.engine.async_session", factory),
         patch("opencompany.company.engine.run_persona", new_callable=AsyncMock),
     ):
-        from opencompany.company.engine import _auto_assign_ticket
+        from opencompany.company.engine import _route_ticket
 
         for tid in created_ids:
-            await _auto_assign_ticket(tid)
+            await _route_ticket(tid)
 
-    # Verify each went to the right team member
+    # Verify each went to the right team member (new routing: api tickets → solver matching)
     expected = {
-        0: "backend-dev",  # load-test
-        1: "frontend-dev",  # tutorial UI
-        2: "devops-eng",  # kubernetes
-        3: "marketing-lead",  # launch trailer
-        4: "sales-lead",  # pricing
+        0: "backend-dev",  # load-test (backend tag)
+        1: "frontend-dev",  # tutorial UI (frontend tag)
+        2: "backend-dev",  # kubernetes → no devops, falls to backend-dev
+        3: "content-writer",  # launch trailer (content tag)
+        4: "content-writer",  # pricing (sales tag → marketing-lead → content-writer)
     }
 
     async with factory() as session:
@@ -1004,7 +1002,7 @@ async def test_game_launch_creates_cross_team_tickets(game_company):
 # Seed from the real company.yaml
 # ---------------------------------------------------------------------------
 async def test_seed_real_company_yaml(db_engine):
-    """Seed the actual config/company.yaml and verify all 9 personas load."""
+    """Seed the actual config/company.yaml and verify all 8 personas load."""
     factory = async_sessionmaker(db_engine, expire_on_commit=False)
 
     with patch("opencompany.company.seed.async_session", factory):
@@ -1016,13 +1014,13 @@ async def test_seed_real_company_yaml(db_engine):
         from sqlalchemy import func, select
 
         count = await session.scalar(select(func.count(Persona.id)))
-        assert count == 9
+        assert count == 8
 
         ceo = await session.get(Persona, "ceo")
         assert ceo.name == "Morgan Reeves"
 
-        cto = await session.get(Persona, "cto")
-        assert cto.name == "Dana Kim"
+        tech_lead = await session.get(Persona, "tech-lead")
+        assert tech_lead.name == "Dana Kim"
 
         backend = await session.get(Persona, "backend-dev")
         assert "game-server" in backend.skills

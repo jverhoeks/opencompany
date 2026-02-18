@@ -19,7 +19,10 @@ async def persona_session(db_engine):
 
 async def test_hire_persona(persona_session, tmp_path):
     """Hiring creates a persona in the database."""
-    with patch("opencompany.company.personas.os.makedirs"):
+    with (
+        patch("opencompany.company.personas.os.makedirs"),
+        patch("opencompany.company.personas._append_to_company_yaml"),
+    ):
         result = await _hire_persona(
             persona_id="new-dev",
             name="Alex",
@@ -54,7 +57,10 @@ async def test_hire_duplicate_persona(persona_session):
         )
         await session.commit()
 
-    with patch("opencompany.company.personas.os.makedirs"):
+    with (
+        patch("opencompany.company.personas.os.makedirs"),
+        patch("opencompany.company.personas._append_to_company_yaml"),
+    ):
         result = await _hire_persona(
             persona_id="existing",
             name="New",
@@ -69,7 +75,7 @@ async def test_hire_duplicate_persona(persona_session):
 
 
 async def test_fire_persona(persona_session):
-    """Firing sets the persona status to terminated."""
+    """Firing sets the persona status to fired."""
     async with persona_session() as session:
         session.add(
             Persona(
@@ -83,12 +89,12 @@ async def test_fire_persona(persona_session):
         await session.commit()
 
     result = await _fire_persona("dev-1", reason="Layoff")
-    assert "Terminated Jamie" in result
+    assert "Fired Jamie" in result
     assert "Layoff" in result
 
     async with persona_session() as session:
         persona = await session.get(Persona, "dev-1")
-        assert persona.status == "terminated"
+        assert persona.status == "fired"
 
 
 async def test_fire_nonexistent_persona(persona_session):
@@ -129,8 +135,8 @@ async def test_list_personas(persona_session):
     assert ids == {"dev-1", "dev-2"}
 
 
-async def test_list_personas_excludes_terminated(persona_session):
-    """Terminated personas are not included in list."""
+async def test_list_personas_excludes_fired(persona_session):
+    """Fired personas are not included in list."""
     async with persona_session() as session:
         session.add(
             Persona(
@@ -143,11 +149,11 @@ async def test_list_personas_excludes_terminated(persona_session):
         )
         session.add(
             Persona(
-                id="fired",
+                id="fired-dev",
                 name="Fired",
                 role="Dev",
                 type="solver",
-                status="terminated",
+                status="fired",
                 backstory="Gone.",
             )
         )

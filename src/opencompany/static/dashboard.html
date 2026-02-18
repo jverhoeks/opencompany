@@ -113,6 +113,17 @@ body::before {
 .member-stat.actions { background: rgba(167,139,250,0.08); color: var(--purple); border-color: rgba(167,139,250,0.15); }
 .member-stat .stat-val { font-weight: 600; }
 
+/* State dots */
+.state-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.state-dot.idle { background: #555; }
+.state-dot.working { background: var(--green); animation: pulse 2s ease-in-out infinite; }
+.state-dot.blocked { background: var(--red); }
+
+/* Fired persona styling */
+.team-member.fired { opacity: 0.4; }
+.team-member.fired .member-name { text-decoration: line-through; }
+.team-member.fired .avatar { filter: grayscale(1); }
+
 /* KPI strip at bottom of sidebar */
 .kpi-strip {
   border-top: 1px solid var(--border); padding: 10px 16px;
@@ -268,6 +279,32 @@ body::before {
 .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
 @keyframes dotPulse { 0%, 60%, 100% { opacity: 0.3; transform: scale(1); } 30% { opacity: 1; transform: scale(1.3); } }
 
+/* Overseer tab */
+.overseer-list { flex: 1; overflow-y: auto; padding: 8px 0; }
+.overseer-msg {
+  padding: 10px 14px; border-bottom: 1px solid var(--border);
+}
+.overseer-msg-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.overseer-msg-from { font-family: var(--font-mono); font-size: 10px; color: var(--cyan); }
+.overseer-msg-time { font-family: var(--font-mono); font-size: 9px; color: var(--text-dim); }
+.overseer-msg-body { font-size: 12px; color: var(--text-main); line-height: 1.5; margin-bottom: 6px; }
+.overseer-msg-reply { font-size: 11px; color: var(--green); margin-top: 4px; }
+.overseer-reply-row { display: flex; gap: 6px; margin-top: 6px; }
+.overseer-reply-input {
+  flex: 1; font-family: var(--font-body); font-size: 11px; padding: 4px 8px;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px;
+  color: var(--text-main); outline: none;
+}
+.overseer-reply-btn {
+  font-family: var(--font-display); font-size: 9px; padding: 4px 10px;
+  background: var(--cyan); color: var(--bg-deep); border: none; border-radius: 4px;
+  cursor: pointer; font-weight: 700;
+}
+.overseer-badge {
+  display: inline-block; background: var(--red); color: #fff; font-size: 9px;
+  padding: 0 5px; border-radius: 8px; margin-left: 4px; font-family: var(--font-mono);
+}
+
 /* ── Scrollbar ─────────────────────────────────── */
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -322,6 +359,7 @@ body::before {
     <div class="feed-tabs">
       <div class="feed-tab active" data-pane="activity">Activity</div>
       <div class="feed-tab" data-pane="chat">Chat</div>
+      <div class="feed-tab" data-pane="overseer">Overseer<span class="overseer-badge" id="overseerBadge" style="display:none"></span></div>
     </div>
     <div class="feed-content">
       <div class="feed-pane active" id="activityPane">
@@ -338,6 +376,9 @@ body::before {
           <input class="chat-input" id="chatInput" placeholder="Send a message..." />
           <button class="chat-send" id="chatSend">SEND</button>
         </div>
+      </div>
+      <div class="feed-pane" id="overseerPane">
+        <div class="overseer-list" id="overseerList"></div>
       </div>
     </div>
   </aside>
@@ -400,7 +441,8 @@ body::before {
   function renderTeam() {
     clearChildren(teamListEl);
     state.personas.forEach(p => {
-      const row = el('div', 'team-member');
+      const isFired = p.status === 'fired';
+      const row = el('div', 'team-member' + (isFired ? ' fired' : ''));
       row.addEventListener('click', () => {
         activeFilter = (activeFilter === p.id) ? 'all' : p.id;
         document.querySelectorAll('.team-member').forEach(m => m.classList.remove('selected'));
@@ -408,35 +450,41 @@ body::before {
         renderBoard();
       });
 
+      // State dot
+      const dot = el('div', 'state-dot ' + (isFired ? 'idle' : (p.activity_state || 'idle')));
+      row.appendChild(dot);
+
       const av = el('div', 'avatar');
       av.style.background = personaColor(p.id);
       av.textContent = initials(p.name);
       row.appendChild(av);
 
       const info = el('div', 'member-info');
-      info.appendChild(el('div', 'member-name', p.name));
+      info.appendChild(el('div', 'member-name', p.name + (isFired ? ' (fired)' : '')));
       info.appendChild(el('div', 'member-role', p.role));
 
-      const stats = el('div', 'member-stats');
-      function addStat(cls, icon, val) {
-        if (val > 0) {
-          const s = el('span', 'member-stat ' + cls);
-          const ic = document.createTextNode(icon + ' ');
-          s.appendChild(ic);
-          const v = el('span', 'stat-val', String(val));
-          s.appendChild(v);
-          stats.appendChild(s);
+      if (!isFired) {
+        const stats = el('div', 'member-stats');
+        function addStat(cls, icon, val) {
+          if (val > 0) {
+            const s = el('span', 'member-stat ' + cls);
+            const ic = document.createTextNode(icon + ' ');
+            s.appendChild(ic);
+            const v = el('span', 'stat-val', String(val));
+            s.appendChild(v);
+            stats.appendChild(s);
+          }
         }
+        addStat('active',  '\u25B6', p.workload);  // ▶ active tasks
+        addStat('created', '\u270E', p.created);    // ✎ tickets created
+        addStat('done',    '\u2713', p.done);       // ✓ completed
+        addStat('actions', '\u26A1', p.actions);    // ⚡ actions taken
+        if (stats.children.length === 0) {
+          const idle = el('span', 'member-stat', p.activity_state || 'idle');
+          stats.appendChild(idle);
+        }
+        info.appendChild(stats);
       }
-      addStat('active',  '\u25B6', p.workload);  // ▶ active tasks
-      addStat('created', '\u270E', p.created);    // ✎ tickets created
-      addStat('done',    '\u2713', p.done);       // ✓ completed
-      addStat('actions', '\u26A1', p.actions);    // ⚡ actions taken
-      if (stats.children.length === 0) {
-        const idle = el('span', 'member-stat', 'idle');
-        stats.appendChild(idle);
-      }
-      info.appendChild(stats);
       row.appendChild(info);
 
       teamListEl.appendChild(row);
@@ -578,7 +626,7 @@ body::before {
   function renderChatSelect() {
     const prev = chatPersonaEl.value;
     clearChildren(chatPersonaEl);
-    state.personas.forEach(p => {
+    state.personas.filter(p => p.status === 'active').forEach(p => {
       const opt = el('option', '', p.name + ' (' + p.role + ')');
       opt.value = p.id;
       chatPersonaEl.appendChild(opt);
@@ -737,6 +785,80 @@ body::before {
       setTimeout(connectSSE, 10000);
     };
   }
+
+  // ── Overseer tab ──────────────────────────────
+  const overseerListEl = document.getElementById('overseerList');
+  const overseerBadgeEl = document.getElementById('overseerBadge');
+  let overseerMessages = [];
+
+  async function loadOverseerMessages() {
+    try {
+      const res = await fetch('/api/overseer/messages');
+      if (!res.ok) return;
+      overseerMessages = await res.json();
+      renderOverseer();
+    } catch (e) { /* ignore */ }
+  }
+
+  function renderOverseer() {
+    clearChildren(overseerListEl);
+    const pending = overseerMessages.filter(m => !m.reply);
+    if (pending.length > 0) {
+      overseerBadgeEl.textContent = String(pending.length);
+      overseerBadgeEl.style.display = 'inline-block';
+    } else {
+      overseerBadgeEl.style.display = 'none';
+    }
+
+    if (overseerMessages.length === 0) {
+      overseerListEl.appendChild(el('div', 'no-data', 'No messages from personas'));
+      return;
+    }
+    overseerMessages.forEach(m => {
+      const item = el('div', 'overseer-msg');
+
+      const hdr = el('div', 'overseer-msg-header');
+      hdr.appendChild(el('span', 'overseer-msg-from', personaMap[m.persona_id] || m.persona_id));
+      if (m.created_at) {
+        const d = new Date(m.created_at);
+        hdr.appendChild(el('span', 'overseer-msg-time', d.toLocaleString()));
+      }
+      item.appendChild(hdr);
+
+      item.appendChild(el('div', 'overseer-msg-body', m.message));
+
+      if (m.reply) {
+        item.appendChild(el('div', 'overseer-msg-reply', 'Reply: ' + m.reply));
+      } else {
+        const replyRow = el('div', 'overseer-reply-row');
+        const input = el('input', 'overseer-reply-input');
+        input.placeholder = 'Type reply...';
+        const btn = el('button', 'overseer-reply-btn', 'REPLY');
+        btn.addEventListener('click', async () => {
+          const reply = input.value.trim();
+          if (!reply) return;
+          btn.disabled = true;
+          try {
+            await fetch('/api/overseer/messages/' + m.id + '/reply', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ reply: reply }),
+            });
+            loadOverseerMessages();
+          } catch (e) { btn.disabled = false; }
+        });
+        replyRow.appendChild(input);
+        replyRow.appendChild(btn);
+        item.appendChild(replyRow);
+      }
+
+      overseerListEl.appendChild(item);
+    });
+  }
+
+  // Load overseer messages periodically
+  setInterval(loadOverseerMessages, 5000);
+  loadOverseerMessages();
 
   // Initial load via poll, then switch to SSE
   poll();
