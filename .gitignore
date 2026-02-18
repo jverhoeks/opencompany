@@ -37,6 +37,9 @@ htmlcov/
 # Docker
 *.log
 
+# Worktrees
+.worktrees/
+
 # Workspaces (runtime-generated agent sandboxes)
 workspaces/*/
 !workspaces/.gitkeep
