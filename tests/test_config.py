@@ -4,6 +4,7 @@ import pytest
 
 from opencompany.company.config import (
     CompanyConfig,
+    add_role,
     get_org_routing,
     get_role,
     invalidate_cache,
@@ -154,6 +155,67 @@ personas: {}
     config1 = load_company_config(str(yaml_file))
     config2 = load_company_config(str(yaml_file))
     assert config1 is config2
+
+
+def test_add_role(tmp_path):
+    """add_role writes a new role to YAML and invalidates cache."""
+    yaml_file = tmp_path / "company.yaml"
+    yaml_file.write_text("""
+org_style: hierarchical
+org_styles: {}
+roles:
+  ceo:
+    type: manager
+    responsibilities: "Lead."
+    tools: [create_ticket]
+personas: {}
+""")
+    # Load to populate cache
+    load_company_config(str(yaml_file))
+
+    add_role(
+        role_id="qa-engineer",
+        role_type="solver",
+        responsibilities="Write and run tests.",
+        constraints="Focus on test coverage.",
+        tools=["read_file", "write_file"],
+        tag_match=["testing", "qa"],
+        path=str(yaml_file),
+    )
+
+    # Cache should be invalidated, reload from file
+    config = load_company_config(str(yaml_file))
+    assert "qa-engineer" in config.roles
+    role = config.roles["qa-engineer"]
+    assert role["type"] == "solver"
+    assert role["responsibilities"] == "Write and run tests."
+    assert role["constraints"] == "Focus on test coverage."
+    assert role["tools"] == ["read_file", "write_file"]
+    assert role["tag_match"] == ["testing", "qa"]
+    # Original role should still be there
+    assert "ceo" in config.roles
+
+
+def test_add_role_duplicate(tmp_path):
+    """add_role raises ValueError for duplicate role IDs."""
+    yaml_file = tmp_path / "company.yaml"
+    yaml_file.write_text("""
+org_style: hierarchical
+org_styles: {}
+roles:
+  ceo:
+    type: manager
+    responsibilities: "Lead."
+    tools: []
+personas: {}
+""")
+    with pytest.raises(ValueError, match="already exists"):
+        add_role(
+            role_id="ceo",
+            role_type="manager",
+            responsibilities="Duplicate.",
+            path=str(yaml_file),
+        )
 
 
 def test_load_real_company_yaml():

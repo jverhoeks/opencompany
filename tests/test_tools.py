@@ -20,17 +20,23 @@ def test_code_tool_schema():
 
 
 def test_company_tool_schema():
-    from opencompany.agents.tools.company import fire_persona, hire_persona, list_team
+    from opencompany.agents.tools.company import (
+        create_role,
+        fire_persona,
+        hire_persona,
+        list_team,
+    )
 
     assert callable(hire_persona)
     assert callable(fire_persona)
     assert callable(list_team)
+    assert callable(create_role)
 
 
 def test_all_tools_registry():
     from opencompany.agents.tools import ALL_TOOLS
 
-    assert len(ALL_TOOLS) == 13
+    assert len(ALL_TOOLS) == 14
     for name, func in ALL_TOOLS.items():
         assert callable(func), f"{name} is not callable"
 

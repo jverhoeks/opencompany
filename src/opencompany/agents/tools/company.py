@@ -47,6 +47,48 @@ def hire_persona(
 
 
 @tool
+def create_role(
+    role_id: str,
+    role_type: str,
+    responsibilities: str,
+    constraints: str = "",
+    tools: str = "",
+    tag_match: str = "",
+    routes_to: str = "",
+) -> str:
+    """Create a new role in the company config (company.yaml).
+
+    Args:
+        role_id: Unique ID for the role (e.g. "qa-engineer")
+        role_type: One of: solver, lead, manager
+        responsibilities: What this role is responsible for
+        constraints: Restrictions or boundaries (optional)
+        tools: Comma-separated tool names (optional, e.g. "read_file,write_file")
+        tag_match: Comma-separated tags this role handles (optional, e.g. "testing,qa")
+        routes_to: Where tickets from this role go (optional, e.g. "solver")
+    """
+    from opencompany.company.config import add_role
+
+    tool_list = [t.strip() for t in tools.split(",") if t.strip()] if tools else None
+    tag_list = [t.strip() for t in tag_match.split(",") if t.strip()] if tag_match else None
+
+    try:
+        add_role(
+            role_id=role_id,
+            role_type=role_type,
+            responsibilities=responsibilities,
+            constraints=constraints,
+            tools=tool_list,
+            tag_match=tag_list,
+            routes_to=routes_to or None,
+        )
+    except (FileNotFoundError, ValueError) as e:
+        return f"Error: {e}"
+
+    return f"Role '{role_id}' created successfully. HR can now hire personas with this role."
+
+
+@tool
 def fire_persona(persona_id: str, reason: str = "") -> str:
     """Fire a persona and reassign their open tickets.
 

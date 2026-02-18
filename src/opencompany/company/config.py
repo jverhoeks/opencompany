@@ -87,3 +87,49 @@ def invalidate_cache() -> None:
     _cached_config = None
     _cached_path = None
     _cached_mtime = 0.0
+
+
+def add_role(
+    role_id: str,
+    role_type: str,
+    responsibilities: str,
+    constraints: str = "",
+    tools: list[str] | None = None,
+    tag_match: list[str] | None = None,
+    routes_to: str | None = None,
+    path: str | None = None,
+) -> None:
+    """Add a new role to company.yaml and invalidate the cache.
+
+    Raises ValueError if the role already exists.
+    """
+    if path is None:
+        path = os.path.join("config", "company.yaml")
+
+    with open(path) as f:
+        raw = yaml.safe_load(f)
+
+    roles = raw.setdefault("roles", {})
+    if role_id in roles:
+        raise ValueError(f"Role '{role_id}' already exists")
+
+    role_def: dict[str, Any] = {
+        "type": role_type,
+        "responsibilities": responsibilities,
+    }
+    if constraints:
+        role_def["constraints"] = constraints
+    if tools:
+        role_def["tools"] = tools
+    if tag_match:
+        role_def["tag_match"] = tag_match
+    if routes_to:
+        role_def["routes_to"] = routes_to
+
+    roles[role_id] = role_def
+
+    with open(path, "w") as f:
+        yaml.dump(raw, f, default_flow_style=False, sort_keys=False)
+
+    invalidate_cache()
+    logger.info("Added role '%s' to %s", role_id, path)
