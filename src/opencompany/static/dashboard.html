@@ -193,6 +193,10 @@ body::before {
 .ticket-priority.medium { background: rgba(255,176,32,0.15); color: var(--amber); }
 .ticket-priority.low { background: rgba(57,255,138,0.1); color: var(--green); }
 .ticket-assignee { font-size: 10px; color: var(--text-dim); margin-left: auto; }
+.ticket-tokens {
+  font-family: var(--font-mono); font-size: 9px; padding: 1px 5px;
+  border-radius: 3px; background: rgba(167,139,250,0.1); color: var(--purple);
+}
 .empty-col { font-size: 11px; color: var(--text-dim); text-align: center; padding: 20px 8px; opacity: 0.5; }
 
 /* ── Modal ──────────────────────────────────────── */
@@ -466,6 +470,11 @@ body::before {
   function initials(name) {
     return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
   }
+  function formatTokens(n) {
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+    return String(n);
+  }
 
   // ── State ──────────────────────────────────────
   let state = { personas: [], tickets: [], status_counts: {}, work_log: [] };
@@ -637,6 +646,13 @@ body::before {
             meta.appendChild(el('span', 'ticket-assignee', personaMap[t.assigned_to]));
           }
 
+          // Token count
+          const totalTokens = (t.tokens_in || 0) + (t.tokens_out || 0);
+          if (totalTokens > 0) {
+            const tk = el('span', 'ticket-tokens', formatTokens(totalTokens));
+            meta.appendChild(tk);
+          }
+
           card.appendChild(meta);
           card.addEventListener('click', () => showTicketModal(t));
           colDiv.appendChild(card);
@@ -704,6 +720,18 @@ body::before {
       ticket.assigned_to ? `Assigned to: ${personaMap[ticket.assigned_to] || ticket.assigned_to}` : 'Unassigned',
     ].filter(Boolean).join(' \u2022 ');
     metaSec.appendChild(el('div', 'modal-text', details));
+    // Token usage
+    const tIn = ticket.tokens_in || 0;
+    const tOut = ticket.tokens_out || 0;
+    if (tIn + tOut > 0) {
+      const tokenText = `Tokens: ${formatTokens(tIn)} in / ${formatTokens(tOut)} out (${formatTokens(tIn + tOut)} total)`;
+      const tokenEl = el('div', 'modal-text');
+      tokenEl.style.color = 'var(--purple)';
+      tokenEl.style.fontFamily = 'var(--font-mono)';
+      tokenEl.style.fontSize = '11px';
+      tokenEl.textContent = tokenText;
+      metaSec.appendChild(tokenEl);
+    }
     modal.appendChild(metaSec);
 
     // Result (if any)

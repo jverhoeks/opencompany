@@ -170,4 +170,5 @@ async def api_chat(body: ChatRequest, session: AsyncSession = Depends(get_sessio
     )
     logger.info("Chat request to persona %s", body.persona_id)
     result = await run_persona(persona, wrapped_message)
-    return ChatResponse(response=result)
+    text = result.text if hasattr(result, "text") else str(result)
+    return ChatResponse(response=text)

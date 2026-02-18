@@ -110,6 +110,8 @@ async def _get_overview_data(session: AsyncSession) -> dict:
                 "assigned_to": t.assigned_to,
                 "created_by": t.created_by,
                 "result": t.result,
+                "tokens_in": t.tokens_in or 0,
+                "tokens_out": t.tokens_out or 0,
                 "created_at": t.created_at.isoformat() if t.created_at else None,
             }
             for t in tickets

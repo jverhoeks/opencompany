@@ -315,15 +315,21 @@ def _spawn_persona_task(persona: Persona, task: str, label: str, ticket_id: int 
     async def _run():
         try:
             await set_persona_state(persona.id, "working")
-            # Set ticket to in_progress when solver starts working
             if ticket_id:
                 await _set_ticket_in_progress(ticket_id, persona.id)
-            await run_persona(persona, task)
+            result = await run_persona(persona, task)
+
+            # Store token usage on ticket
+            if ticket_id and (result.input_tokens or result.output_tokens):
+                await _add_ticket_tokens(ticket_id, result.input_tokens, result.output_tokens)
         except Exception:
             logger.exception("Background persona task %s failed", label)
             await set_persona_state(persona.id, "blocked")
         else:
             await set_persona_state(persona.id, "idle")
+            # Greedy: solver looks for next unassigned ticket
+            if persona.type == "solver":
+                await _greedy_pickup(persona)
 
     t = asyncio.create_task(_run(), name=label)
     _running_tasks.add(t)
@@ -349,6 +355,60 @@ async def _set_ticket_in_progress(ticket_id: int, persona_id: str) -> None:
                 ticket_id,
                 persona_id,
             )
+
+
+async def _add_ticket_tokens(ticket_id: int, tokens_in: int, tokens_out: int) -> None:
+    """Accumulate token usage on a ticket."""
+    async with async_session() as session:
+        ticket = await session.get(Ticket, ticket_id)
+        if ticket:
+            ticket.tokens_in = (ticket.tokens_in or 0) + tokens_in
+            ticket.tokens_out = (ticket.tokens_out or 0) + tokens_out
+            await session.commit()
+
+
+async def _greedy_pickup(persona: Persona) -> None:
+    """After finishing a task, solver looks for the next unassigned ticket."""
+    try:
+        load_company_config()
+    except FileNotFoundError:
+        return
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(Ticket).where(
+                Ticket.status == "open",
+                Ticket.assigned_to.is_(None),
+            )
+        )
+        orphans = result.scalars().all()
+
+    if not orphans:
+        return
+
+    # Find best match for this solver's skills
+    picks_up = persona.picks_up or persona.skills or []
+    best_ticket = None
+    best_score = 0.0
+    for ticket in orphans:
+        from opencompany.company.taskboard import _fuzzy_tag_score
+
+        score = _fuzzy_tag_score({s.lower() for s in picks_up}, {t.lower() for t in ticket.tags})
+        if score > best_score:
+            best_score = score
+            best_ticket = ticket
+
+    if not best_ticket:
+        return
+
+    logger.info(
+        "Greedy pickup: %s grabs ticket #%d (score=%.1f)",
+        persona.id,
+        best_ticket.id,
+        best_score,
+    )
+    # Route through normal flow so all logging/state tracking happens
+    await _route_ticket(best_ticket.id)
 
 
 async def _escalate_to_ceo(ticket: Ticket, session) -> None:

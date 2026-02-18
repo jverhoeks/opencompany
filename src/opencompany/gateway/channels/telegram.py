@@ -63,8 +63,9 @@ async def _handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         result = await run_persona(persona, wrapped_message)
         # Telegram has a 4096 char limit
-        for i in range(0, len(result), 4000):
-            await update.message.reply_text(result[i : i + 4000])
+        text = result.text if hasattr(result, "text") else str(result)
+        for i in range(0, len(text), 4000):
+            await update.message.reply_text(text[i : i + 4000])
     except Exception:
         logger.exception("Error processing message from user %s", peer)
         await update.message.reply_text("Sorry, something went wrong. Please try again.")
