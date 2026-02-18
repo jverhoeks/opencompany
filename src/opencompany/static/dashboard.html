@@ -500,6 +500,7 @@ body::before {
       const isFired = p.status === 'fired';
       const row = el('div', 'team-member' + (isFired ? ' fired' : ''));
       row.addEventListener('click', () => {
+        // Toggle board filter
         activeFilter = (activeFilter === p.id) ? 'all' : p.id;
         document.querySelectorAll('.team-member').forEach(m => m.classList.remove('selected'));
         if (activeFilter !== 'all') {
@@ -511,6 +512,8 @@ body::before {
           }
         }
         renderBoard();
+        // Show persona detail popup
+        showPersonaModal(p);
       });
 
       // State dot
@@ -758,6 +761,120 @@ body::before {
     } catch (err) {
       console.error('Assign failed:', err);
     }
+  }
+
+  // ── Persona detail modal ────────────────────────
+  function showPersonaModal(p) {
+    const overlay = el('div', 'modal-overlay');
+    const modal = el('div', 'modal');
+
+    // Header
+    const header = el('div', 'modal-header');
+    const titleRow = el('div', '');
+    titleRow.style.display = 'flex';
+    titleRow.style.alignItems = 'center';
+    titleRow.style.gap = '10px';
+    const dot = el('div', 'state-dot ' + (p.status === 'fired' ? 'idle' : (p.activity_state || 'idle')));
+    dot.style.position = 'static';
+    titleRow.appendChild(dot);
+    titleRow.appendChild(el('span', 'modal-title', p.name));
+    header.appendChild(titleRow);
+    const closeBtn = el('button', 'modal-close', '\u00D7');
+    closeBtn.addEventListener('click', () => overlay.remove());
+    header.appendChild(closeBtn);
+    modal.appendChild(header);
+
+    // Role & status
+    const infoSec = el('div', 'modal-section');
+    infoSec.appendChild(el('div', 'modal-label', 'Role'));
+    infoSec.appendChild(el('div', 'modal-text', `${p.role} (${p.type}) \u2022 ${p.status}`));
+    modal.appendChild(infoSec);
+
+    // Skills / picks_up
+    const tags = p.picks_up && p.picks_up.length ? p.picks_up : p.skills;
+    if (tags && tags.length) {
+      const sec = el('div', 'modal-section');
+      sec.appendChild(el('div', 'modal-label', 'Picks up'));
+      const tagsDiv = el('div', 'modal-tags');
+      tags.forEach(tag => tagsDiv.appendChild(el('span', 'ticket-tag', tag)));
+      sec.appendChild(tagsDiv);
+      modal.appendChild(sec);
+    }
+
+    // Stats
+    const statsSec = el('div', 'modal-section');
+    statsSec.appendChild(el('div', 'modal-label', 'Stats'));
+    statsSec.appendChild(el('div', 'modal-text',
+      `Active: ${p.workload || 0} \u2022 Created: ${p.created || 0} \u2022 Done: ${p.done || 0} \u2022 Actions: ${p.actions || 0}`
+    ));
+    modal.appendChild(statsSec);
+
+    // Assigned tickets
+    const assigned = state.tickets.filter(t =>
+      t.assigned_to === p.id && ['assigned', 'in_progress', 'review'].includes(t.status)
+    );
+    const created = state.tickets.filter(t =>
+      t.created_by === p.id && !assigned.some(a => a.id === t.id)
+    );
+
+    if (assigned.length) {
+      const sec = el('div', 'modal-section');
+      sec.appendChild(el('div', 'modal-label', `Assigned tickets (${assigned.length})`));
+      assigned.forEach(t => {
+        const row = el('div', 'modal-match');
+        row.appendChild(el('span', '', `#${t.id} ${t.title}`));
+        const badge = el('span', 'ticket-priority ' + (t.status === 'in_progress' ? 'medium' : 'low'));
+        badge.textContent = t.status;
+        row.appendChild(badge);
+        row.addEventListener('click', () => { overlay.remove(); showTicketModal(t); });
+        sec.appendChild(row);
+      });
+      modal.appendChild(sec);
+    }
+
+    if (created.length) {
+      const sec = el('div', 'modal-section');
+      sec.appendChild(el('div', 'modal-label', `Created tickets (${created.length})`));
+      created.slice(0, 10).forEach(t => {
+        const row = el('div', 'modal-match');
+        row.appendChild(el('span', '', `#${t.id} ${t.title}`));
+        const badge = el('span', 'modal-match-score', t.status);
+        row.appendChild(badge);
+        row.addEventListener('click', () => { overlay.remove(); showTicketModal(t); });
+        sec.appendChild(row);
+      });
+      modal.appendChild(sec);
+    }
+
+    if (!assigned.length && !created.length) {
+      const sec = el('div', 'modal-section');
+      sec.appendChild(el('div', 'modal-text', 'No tickets assigned or created'));
+      modal.appendChild(sec);
+    }
+
+    // Actions
+    const actions = el('div', 'modal-actions');
+    if (p.status === 'active' && chatPersonaEl.querySelector(`option[value="${p.id}"]`)) {
+      const chatBtn = el('button', 'modal-btn primary', 'OPEN CHAT');
+      chatBtn.addEventListener('click', () => {
+        overlay.remove();
+        chatPersonaEl.value = p.id;
+        switchChatPersona();
+        // Switch to chat tab
+        document.querySelectorAll('.feed-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.feed-pane').forEach(p => p.classList.remove('active'));
+        const chatTab = document.querySelector('[data-pane="chat"]');
+        if (chatTab) { chatTab.classList.add('active'); }
+        const chatPane = document.getElementById('chatPane');
+        if (chatPane) { chatPane.classList.add('active'); }
+      });
+      actions.appendChild(chatBtn);
+    }
+    modal.appendChild(actions);
+
+    overlay.appendChild(modal);
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    document.body.appendChild(overlay);
   }
 
   // ── Render: Activity feed ──────────────────────
