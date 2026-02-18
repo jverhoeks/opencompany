@@ -6,11 +6,13 @@ from strands import tool
 WORKSPACE_ROOT = os.path.realpath(os.environ.get("WORKSPACE_ROOT", "workspaces"))
 
 
-def _safe_resolve(path: str, base: str = WORKSPACE_ROOT) -> str:
+def _safe_resolve(path: str, base: str | None = None) -> str:
     """Resolve *path* and verify it lives inside *base*.
 
     Raises ``ValueError`` if the resolved path escapes the base directory.
     """
+    if base is None:
+        base = WORKSPACE_ROOT
     resolved = os.path.realpath(path)
     base = os.path.realpath(base)
     if not (resolved == base or resolved.startswith(base + os.sep)):

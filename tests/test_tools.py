@@ -51,16 +51,17 @@ def test_read_file_returns_contents(tmp_path):
     test_file = tmp_path / "hello.py"
     test_file.write_text("print('hello')")
 
-    # The @tool decorator wraps the function; call the underlying function
-    result = read_file.__wrapped__(path=str(test_file))
+    with patch("opencompany.agents.tools.code.WORKSPACE_ROOT", str(tmp_path)):
+        result = read_file.__wrapped__(path=str(test_file))
     assert "print('hello')" in result
 
 
-def test_read_file_missing_file():
+def test_read_file_missing_file(tmp_path):
     """read_file returns an error message for missing files."""
     from opencompany.agents.tools.code import read_file
 
-    result = read_file.__wrapped__(path="/nonexistent/file.py")
+    with patch("opencompany.agents.tools.code.WORKSPACE_ROOT", str(tmp_path)):
+        result = read_file.__wrapped__(path=str(tmp_path / "nonexistent.py"))
     assert "Error" in result or "not found" in result
 
 
@@ -71,7 +72,8 @@ def test_list_files_shows_directory_contents(tmp_path):
     (tmp_path / "a.py").write_text("")
     (tmp_path / "b.py").write_text("")
 
-    result = list_files.__wrapped__(directory=str(tmp_path))
+    with patch("opencompany.agents.tools.code.WORKSPACE_ROOT", str(tmp_path)):
+        result = list_files.__wrapped__(directory=str(tmp_path))
     assert "a.py" in result
     assert "b.py" in result
 
@@ -83,7 +85,8 @@ def test_list_files_with_pattern(tmp_path):
     (tmp_path / "code.py").write_text("")
     (tmp_path / "data.json").write_text("")
 
-    result = list_files.__wrapped__(directory=str(tmp_path), pattern="*.py")
+    with patch("opencompany.agents.tools.code.WORKSPACE_ROOT", str(tmp_path)):
+        result = list_files.__wrapped__(directory=str(tmp_path), pattern="*.py")
     assert "code.py" in result
     assert "data.json" not in result
 
@@ -95,7 +98,8 @@ def test_grep_code_finds_pattern(tmp_path):
     py_file = tmp_path / "example.py"
     py_file.write_text("def hello_world():\n    pass\n")
 
-    result = grep_code.__wrapped__(pattern="hello_world", directory=str(tmp_path))
+    with patch("opencompany.agents.tools.code.WORKSPACE_ROOT", str(tmp_path)):
+        result = grep_code.__wrapped__(pattern="hello_world", directory=str(tmp_path))
     assert "hello_world" in result
 
 
@@ -106,7 +110,8 @@ def test_grep_code_no_matches(tmp_path):
     py_file = tmp_path / "example.py"
     py_file.write_text("def foo():\n    pass\n")
 
-    result = grep_code.__wrapped__(pattern="nonexistent_function", directory=str(tmp_path))
+    with patch("opencompany.agents.tools.code.WORKSPACE_ROOT", str(tmp_path)):
+        result = grep_code.__wrapped__(pattern="nonexistent_function", directory=str(tmp_path))
     assert "No matches" in result
 
 
