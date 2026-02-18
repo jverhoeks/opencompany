@@ -84,6 +84,17 @@ async def _hire_persona(
     )
 
     logger.info("Hired persona %s (%s) as %s", persona_id, name, role)
+
+    # Sweep unassigned tickets — the new hire might match orphaned work
+    try:
+        from opencompany.company.engine import sweep_unassigned_tickets
+
+        swept = await sweep_unassigned_tickets()
+        if swept:
+            logger.info("Post-hire sweep routed %d tickets after hiring %s", swept, persona_id)
+    except Exception:
+        logger.debug("Post-hire sweep skipped (engine not ready)")
+
     return f"Hired {name} as {role} (id={persona_id})"
 
 

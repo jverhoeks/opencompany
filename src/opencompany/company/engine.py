@@ -154,16 +154,29 @@ def _get_routing_target(
 
 
 def _find_lead_for_tags(tags: list[str], config) -> str | None:
-    """Find the best lead/persona for a set of tags using role tag_match."""
+    """Find the best lead/persona for a set of tags using fuzzy role tag_match.
+
+    Exact match = 1.0, substring match = 0.5 (e.g. "design" in "web-design").
+    """
     best_match = None
-    best_score = 0
+    best_score = 0.0
+
+    ticket_tags = {t.lower() for t in tags}
 
     for role_id, role in config.roles.items():
         tag_match = role.get("tag_match", [])
         if not tag_match:
             continue
-        tag_match_lower = [tm.lower() for tm in tag_match]
-        score = sum(1 for t in tags if t.lower() in tag_match_lower)
+        role_tags = {tm.lower() for tm in tag_match}
+        score = 0.0
+        for tt in ticket_tags:
+            if tt in role_tags:
+                score += 1.0
+                continue
+            for rt in role_tags:
+                if rt in tt or tt in rt:
+                    score += 0.5
+                    break
         if score > best_score:
             best_score = score
             best_match = role_id
@@ -185,7 +198,12 @@ async def _assign_to_solver(ticket: Ticket, session) -> None:
 
     best = find_best_solver(tags=ticket.tags, solvers=solvers)
     if not best:
-        logger.warning("No solver found for ticket #%d tags=%s", ticket.id, ticket.tags)
+        logger.warning(
+            "No solver for ticket #%d tags=%s, escalating to CEO",
+            ticket.id,
+            ticket.tags,
+        )
+        await _escalate_to_ceo(ticket, session)
         return
 
     ticket.assigned_to = best["id"]
@@ -303,6 +321,63 @@ def _spawn_persona_task(persona: Persona, task: str, label: str):
     _running_tasks.add(t)
     t.add_done_callback(_running_tasks.discard)
     logger.info("Spawned background task: %s", label)
+
+
+async def _escalate_to_ceo(ticket: Ticket, session) -> None:
+    """Assign an unmatched ticket to the CEO for re-tagging or role creation."""
+    ceo = await session.get(Persona, "ceo")
+    if not ceo or ceo.status != "active":
+        logger.warning("CEO not available, ticket #%d stays unassigned", ticket.id)
+        return
+
+    ticket.assigned_to = "ceo"
+    ticket.status = "assigned"
+    log = WorkLog(persona_id="ceo", action="escalated", ticket_id=ticket.id)
+    session.add(log)
+    await session.commit()
+    logger.info("Escalated ticket #%d to CEO (no matching solver)", ticket.id)
+
+    _spawn_persona_task(
+        ceo,
+        f"Ticket #{ticket.id} ({ticket.title}) could not be automatically assigned.\n"
+        f"Tags: {', '.join(ticket.tags)}\n"
+        f"Description: {ticket.description}\n\n"
+        "No available persona matches these tags. You should either:\n"
+        "1. Re-tag the ticket so it matches an existing team member\n"
+        "2. Create a new role (create_role) and hire someone (via HR) to handle it\n"
+        "3. Assign it to an existing team member via update_ticket",
+        f"escalate-ticket-{ticket.id}",
+    )
+
+
+async def sweep_unassigned_tickets() -> int:
+    """Find open unassigned tickets and try to route them.
+
+    Called periodically by the scheduler and after new hires.
+    Returns the number of tickets routed.
+    """
+    async with async_session() as session:
+        result = await session.execute(
+            select(Ticket).where(
+                Ticket.status == "open",
+                Ticket.assigned_to.is_(None),
+            )
+        )
+        orphans = result.scalars().all()
+
+    if not orphans:
+        return 0
+
+    logger.info("Sweep found %d unassigned tickets", len(orphans))
+    routed = 0
+    for ticket in orphans:
+        try:
+            await _route_ticket(ticket.id)
+            routed += 1
+        except Exception:
+            logger.exception("Sweep failed for ticket #%d", ticket.id)
+
+    return routed
 
 
 async def start_event_listener():

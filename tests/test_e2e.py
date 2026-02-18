@@ -975,3 +975,134 @@ async def test_seed_real_company_yaml(db_engine):
 
         hr = await session.get(Persona, "hr")
         assert hr.name == "Quinn Nakamura"
+
+
+# ---------------------------------------------------------------------------
+# Fuzzy tag matching
+# ---------------------------------------------------------------------------
+def test_fuzzy_tag_matching_exact():
+    """Exact tag match scores 1.0."""
+    from opencompany.company.taskboard import find_best_solver
+
+    solvers = [{"id": "dev1", "skills": ["backend", "python"], "workload": 0}]
+    best = find_best_solver(["backend"], solvers)
+    assert best["id"] == "dev1"
+
+
+def test_fuzzy_tag_matching_substring():
+    """Substring match: 'design' matches solver with 'web-design' skill."""
+    from opencompany.company.taskboard import find_best_solver
+
+    solvers = [
+        {"id": "dev1", "skills": ["web-design", "css"], "workload": 0},
+        {"id": "dev2", "skills": ["backend", "api"], "workload": 0},
+    ]
+    best = find_best_solver(["design"], solvers)
+    assert best["id"] == "dev1"
+
+
+def test_fuzzy_tag_matching_reverse_substring():
+    """Reverse substring: solver skill 'ui' matches ticket tag 'ui-design'."""
+    from opencompany.company.taskboard import find_best_solver
+
+    solvers = [
+        {"id": "designer", "skills": ["ui", "css", "html"], "workload": 0},
+        {"id": "backend", "skills": ["python", "api"], "workload": 0},
+    ]
+    best = find_best_solver(["ui-design"], solvers)
+    assert best["id"] == "designer"
+
+
+# ---------------------------------------------------------------------------
+# CEO escalation when no solver matches
+# ---------------------------------------------------------------------------
+async def test_engine_escalates_to_ceo(db_engine):
+    """Ticket escalates to CEO when no solver can handle the tags."""
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async with factory() as session:
+        session.add(
+            Persona(
+                id="ceo",
+                name="Morgan",
+                role="CEO",
+                type="manager",
+                skills=["strategy"],
+                backstory="The boss.",
+            )
+        )
+        ticket = Ticket(
+            title="Blockchain integration",
+            priority="high",
+            tags=["blockchain", "crypto"],
+        )
+        session.add(ticket)
+        await session.commit()
+        await session.refresh(ticket)
+        ticket_id = ticket.id
+
+    with (
+        patch("opencompany.company.engine.async_session", factory),
+        patch("opencompany.company.engine.run_persona", new_callable=AsyncMock),
+        patch(
+            "opencompany.company.engine.load_company_config",
+            return_value=_GAME_CONFIG,
+        ),
+    ):
+        from opencompany.company.engine import _route_ticket
+
+        await _route_ticket(ticket_id)
+
+    async with factory() as session:
+        updated = await session.get(Ticket, ticket_id)
+        assert updated.assigned_to == "ceo"
+        assert updated.status == "assigned"
+
+
+# ---------------------------------------------------------------------------
+# Sweep unassigned tickets
+# ---------------------------------------------------------------------------
+async def test_sweep_routes_orphaned_tickets(db_engine):
+    """Sweep picks up open/unassigned tickets and routes them."""
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async with factory() as session:
+        session.add(
+            Persona(
+                id="dev1",
+                name="Dev",
+                role="Backend Dev",
+                type="solver",
+                skills=["backend"],
+                picks_up=["backend"],
+                backstory="A developer.",
+            )
+        )
+        # Orphaned ticket — open, unassigned
+        ticket = Ticket(
+            title="Fix API bug",
+            priority="medium",
+            tags=["backend"],
+        )
+        session.add(ticket)
+        await session.commit()
+        await session.refresh(ticket)
+        ticket_id = ticket.id
+
+    with (
+        patch("opencompany.company.engine.async_session", factory),
+        patch("opencompany.company.engine.run_persona", new_callable=AsyncMock),
+        patch(
+            "opencompany.company.engine.load_company_config",
+            return_value=_GAME_CONFIG,
+        ),
+    ):
+        from opencompany.company.engine import sweep_unassigned_tickets
+
+        count = await sweep_unassigned_tickets()
+
+    assert count == 1
+    async with factory() as session:
+        updated = await session.get(Ticket, ticket_id)
+        assert updated.assigned_to == "dev1"
+        assert updated.status == "assigned"

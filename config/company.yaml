@@ -1,239 +1,255 @@
-# ── OpenCompany Configuration ─────────────────────────────────────
-# Roles are templates. Personas are instances of roles.
-# Only CEO + HR are built-in. Everything else is hired at runtime.
-# ──────────────────────────────────────────────────────────────────
-
 org_style: hierarchical
-
 org_styles:
   dictator:
-    description: "Flat structure. CEO directly assigns to workers."
+    description: Flat structure. CEO directly assigns to workers.
     routing:
       ceo: solver
     max_depth: 1
-
   hierarchical:
-    description: "Chain of command. CEO → PM → Leads → Workers."
+    description: "Chain of command. CEO \u2192 PM \u2192 Leads \u2192 Workers."
     routing:
       ceo: pm
       pm: lead
       lead: solver
     max_depth: 3
-
   holacracy:
-    description: "Self-steering circles. Tickets route to best match."
+    description: Self-steering circles. Tickets route to best match.
     routing:
       default: circle
     max_depth: 1
-
-# ── Role Catalog ──────────────────────────────────────────────────
-# Roles define: type, responsibilities, constraints, tools, routing.
-# HR uses this catalog when hiring. CEO+HR can add new roles.
-
 roles:
   ceo:
     builtin: true
     type: manager
-    responsibilities: |
-      Set strategic direction. Create high-level goals as tickets.
-      Tag tickets to hint at department: product, marketing, hr.
-      Decide what roles and people the company needs — YOU make hiring
-      decisions. Create HR-tagged tickets specifying which role to hire
-      and what skills are needed. Do NOT ask the overseer for guidance
-      on hiring — that is YOUR job as CEO.
-    constraints: |
-      Do NOT break tickets into sub-tasks — delegate to PM.
-      Request HR to hire/fire via HR-tagged tickets.
-      Only use contact_overseer when the overseer's instructions are
-      unclear or ambiguous — never to ask what to do next.
+    responsibilities: "Set strategic direction. Create high-level goals as tickets.\n\
+      Tag tickets to hint at department: product, marketing, hr.\nDecide what roles\
+      \ and people the company needs \u2014 YOU make hiring\ndecisions. Create HR-tagged\
+      \ tickets specifying which role to hire\nand what skills are needed. Do NOT\
+      \ ask the overseer for guidance\non hiring \u2014 that is YOUR job as CEO.\n"
+    constraints: "Do NOT break tickets into sub-tasks \u2014 delegate to PM.\nRequest\
+      \ HR to hire/fire via HR-tagged tickets.\nOnly use contact_overseer when the\
+      \ overseer's instructions are\nunclear or ambiguous \u2014 never to ask what\
+      \ to do next.\n"
     tools:
-      - create_ticket
-      - list_tickets
-      - update_ticket
-      - list_team
-      - contact_overseer
-      - create_role
+    - create_ticket
+    - list_tickets
+    - update_ticket
+    - list_team
+    - contact_overseer
+    - create_role
     routes_to: pm
-
   hr:
     builtin: true
     type: manager
-    responsibilities: |
-      Handle hiring and firing. Evaluate skill gaps.
-      When hiring, pick the right role from the catalog.
-      Assign skills, tools, and reporting structure.
-    constraints: |
-      Set reports_to appropriately based on org style.
-      Only hire roles that exist in the catalog, or create new ones first.
-    tools:
-      - hire_persona
-      - fire_persona
-      - list_team
-      - list_tickets
-      - update_ticket
-      - contact_overseer
-      - create_role
+    responsibilities: 'Handle hiring and firing. Evaluate skill gaps.
 
+      When hiring, pick the right role from the catalog.
+
+      Assign skills, tools, and reporting structure.
+
+      '
+    constraints: 'Set reports_to appropriately based on org style.
+
+      Only hire roles that exist in the catalog, or create new ones first.
+
+      '
+    tools:
+    - hire_persona
+    - fire_persona
+    - list_team
+    - list_tickets
+    - update_ticket
+    - contact_overseer
+    - create_role
   pm:
     type: manager
-    responsibilities: |
-      Break CEO goals into department-specific sub-tickets.
-      Route via tags: backend, frontend, architecture → tech-lead.
-      marketing, content, sales-page → marketing-lead.
-    constraints: |
-      Track progress by listing tickets and following up.
-      Each sub-ticket should have a clear deliverable.
-    tools:
-      - create_ticket
-      - list_tickets
-      - update_ticket
-      - list_team
-      - send_message
-    routes_to: lead
+    responsibilities: "Break CEO goals into department-specific sub-tickets.\nRoute\
+      \ via tags: backend, frontend, architecture \u2192 tech-lead.\nmarketing, content,\
+      \ sales-page \u2192 marketing-lead.\n"
+    constraints: 'Track progress by listing tickets and following up.
 
+      Each sub-ticket should have a clear deliverable.
+
+      '
+    tools:
+    - create_ticket
+    - list_tickets
+    - update_ticket
+    - list_team
+    - send_message
+    routes_to: lead
   tech-lead:
     type: lead
     tag_match:
-      - backend
-      - frontend
-      - architecture
-      - code
-      - technical
-      - api
-      - database
-      - game-server
-    responsibilities: |
-      Design technical approach. Create developer sub-tickets.
-      Review completed work and approve or reject.
-    constraints: |
-      Focus on RUNNABLE CODE. No cloud infra, CI/CD, Docker, K8s.
-      All deliverables should be code files that run locally.
-    tools:
-      - create_ticket
-      - list_tickets
-      - update_ticket
-      - read_file
-      - list_files
-      - grep_code
-      - send_message
-    routes_to: solver
+    - backend
+    - frontend
+    - architecture
+    - code
+    - technical
+    - api
+    - database
+    - game-server
+    responsibilities: 'Design technical approach. Create developer sub-tickets.
 
+      Review completed work and approve or reject.
+
+      '
+    constraints: 'Focus on RUNNABLE CODE. No cloud infra, CI/CD, Docker, K8s.
+
+      All deliverables should be code files that run locally.
+
+      '
+    tools:
+    - create_ticket
+    - list_tickets
+    - update_ticket
+    - read_file
+    - list_files
+    - grep_code
+    - send_message
+    routes_to: solver
   marketing-lead:
     type: lead
     tag_match:
-      - marketing
-      - content
-      - sales-page
-      - blog
-      - copy
-      - growth
-      - community
-      - sales
-      - website
-    responsibilities: |
-      Create marketing strategy. Delegate content work.
-      Review content produced by team.
-    constraints: |
-      Deliverables: marketing plans, strategy briefs, content.
-    tools:
-      - create_ticket
-      - list_tickets
-      - update_ticket
-      - send_message
-    routes_to: solver
+    - marketing
+    - content
+    - sales-page
+    - blog
+    - copy
+    - growth
+    - community
+    - sales
+    - website
+    responsibilities: 'Create marketing strategy. Delegate content work.
 
+      Review content produced by team.
+
+      '
+    constraints: 'Deliverables: marketing plans, strategy briefs, content.
+
+      '
+    tools:
+    - create_ticket
+    - list_tickets
+    - update_ticket
+    - send_message
+    routes_to: solver
   backend-dev:
     type: solver
     tag_match:
-      - backend
-      - python
-      - api
-      - database
-      - game-server
-      - websockets
-    responsibilities: |
-      Write backend code. Produce runnable Python files.
-    constraints: |
-      No cloud infra, CI/CD, Docker. Focus on runnable output.
-      When done, call update_ticket with result and set status to review.
-    tools:
-      - read_file
-      - write_file
-      - list_files
-      - grep_code
-      - update_ticket
-      - send_message
-      - contact_overseer
+    - backend
+    - python
+    - api
+    - database
+    - game-server
+    - websockets
+    responsibilities: 'Write backend code. Produce runnable Python files.
 
+      '
+    constraints: 'No cloud infra, CI/CD, Docker. Focus on runnable output.
+
+      When done, call update_ticket with result and set status to review.
+
+      '
+    tools:
+    - read_file
+    - write_file
+    - list_files
+    - grep_code
+    - update_ticket
+    - send_message
+    - contact_overseer
   frontend-dev:
     type: solver
     tag_match:
-      - frontend
-      - html
-      - css
-      - javascript
-      - ui
-      - canvas
-      - game-client
-    responsibilities: |
-      Write frontend code. Produce HTML/CSS/JS files.
-    constraints: |
-      No cloud infra. Focus on runnable output.
-      When done, call update_ticket with result and set status to review.
-    tools:
-      - read_file
-      - write_file
-      - list_files
-      - grep_code
-      - update_ticket
-      - send_message
-      - contact_overseer
+    - frontend
+    - html
+    - css
+    - javascript
+    - ui
+    - canvas
+    - game-client
+    responsibilities: 'Write frontend code. Produce HTML/CSS/JS files.
 
+      '
+    constraints: 'No cloud infra. Focus on runnable output.
+
+      When done, call update_ticket with result and set status to review.
+
+      '
+    tools:
+    - read_file
+    - write_file
+    - list_files
+    - grep_code
+    - update_ticket
+    - send_message
+    - contact_overseer
   content-writer:
     type: solver
     tag_match:
-      - content
-      - copy
-      - blog
-      - sales-page
-      - documentation
-      - website
-    responsibilities: |
-      Write marketing copy, blog posts, sales pages, docs.
-    constraints: |
-      Deliverables: HTML pages, markdown documents.
+    - content
+    - copy
+    - blog
+    - sales-page
+    - documentation
+    - website
+    responsibilities: 'Write marketing copy, blog posts, sales pages, docs.
+
+      '
+    constraints: 'Deliverables: HTML pages, markdown documents.
+
       When done, call update_ticket with result and set status to review.
+
+      '
     tools:
-      - read_file
-      - write_file
-      - list_files
-      - update_ticket
-      - send_message
-      - contact_overseer
-      - web_search
+    - read_file
+    - write_file
+    - list_files
+    - update_ticket
+    - send_message
+    - contact_overseer
+    - web_search
+  developer:
+    type: solver
+    tag_match:
+    - code
+    - development
+    - programming
+    responsibilities: Develop and maintain software applications, collaborate with
+      team members, ensure code quality and performance.
+    constraints: 'Focus on runnable code. No cloud infra, CI/CD, Docker.
 
-# ── Personas (initial team) ───────────────────────────────────────
-# Only CEO + HR start. Others are hired at runtime by HR.
+      When done, call update_ticket with result and set status to review.
 
+      '
+    tools:
+    - read_file
+    - write_file
+    - list_files
+    - grep_code
+    - update_ticket
+    - send_message
+    - contact_overseer
 personas:
   ceo:
     role: ceo
-    name: "Morgan Hayes"
-    backstory: >
-      Visionary founder with a bias for action. Creates high-level
-      strategic tickets and trusts the team to execute. Hires
-      through HR when new capabilities are needed.
+    name: Morgan Hayes
+    backstory: 'Visionary founder with a bias for action. Creates high-level strategic
+      tickets and trusts the team to execute. Hires through HR when new capabilities
+      are needed.
+
+      '
   hr:
     role: hr
-    name: "Quinn Nakamura"
-    backstory: >
-      People-focused HR manager who builds effective teams. Reads
-      the role catalog carefully and hires the right people with
-      the right skills. Manages departures with grace.
+    name: Quinn Nakamura
+    backstory: 'People-focused HR manager who builds effective teams. Reads the role
+      catalog carefully and hires the right people with the right skills. Manages
+      departures with grace.
 
-# ── Channel Bindings ──────────────────────────────────────────────
+      '
 bindings:
-  - persona_id: ceo
-    match:
-      channel: telegram
-      chat_type: direct
+- persona_id: ceo
+  match:
+    channel: telegram
+    chat_type: direct

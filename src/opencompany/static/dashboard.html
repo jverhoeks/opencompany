@@ -195,6 +195,55 @@ body::before {
 .ticket-assignee { font-size: 10px; color: var(--text-dim); margin-left: auto; }
 .empty-col { font-size: 11px; color: var(--text-dim); text-align: center; padding: 20px 8px; opacity: 0.5; }
 
+/* ── Modal ──────────────────────────────────────── */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+  display: flex; align-items: center; justify-content: center; z-index: 1000;
+  backdrop-filter: blur(4px); animation: fadeIn 0.15s;
+}
+.modal {
+  background: var(--bg-panel); border: 1px solid var(--border-glow);
+  border-radius: 10px; width: min(480px, 90vw); max-height: 80vh;
+  overflow-y: auto; padding: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+.modal-header {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  margin-bottom: 14px;
+}
+.modal-title { font-family: var(--font-display); font-size: 13px; color: var(--cyan); }
+.modal-close {
+  font-size: 18px; color: var(--text-dim); cursor: pointer; background: none;
+  border: none; line-height: 1;
+}
+.modal-close:hover { color: var(--text-bright); }
+.modal-section { margin-bottom: 12px; }
+.modal-label {
+  font-family: var(--font-display); font-size: 9px; letter-spacing: 1.5px;
+  text-transform: uppercase; color: var(--text-dim); margin-bottom: 4px;
+}
+.modal-text { font-size: 12px; color: var(--text-main); line-height: 1.5; }
+.modal-tags { display: flex; gap: 4px; flex-wrap: wrap; }
+.modal-match {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px;
+  margin-bottom: 4px; font-size: 12px; color: var(--text-main); cursor: pointer;
+  transition: all 0.15s;
+}
+.modal-match:hover { border-color: var(--cyan); background: var(--bg-hover); }
+.modal-match.active { border-color: var(--green); background: rgba(57,255,138,0.05); }
+.modal-match-score {
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-dim);
+}
+.modal-btn {
+  font-family: var(--font-display); font-size: 10px; padding: 6px 14px;
+  border: none; border-radius: 6px; cursor: pointer; letter-spacing: 1px;
+  font-weight: 700; transition: opacity 0.15s;
+}
+.modal-btn.primary { background: var(--cyan); color: var(--bg-deep); }
+.modal-btn.danger { background: var(--red); color: #fff; }
+.modal-btn:hover { opacity: 0.85; }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+
 /* ── Feed / Chat ───────────────────────────────── */
 .feed {
   grid-area: feed; background: var(--bg-panel);
@@ -453,7 +502,14 @@ body::before {
       row.addEventListener('click', () => {
         activeFilter = (activeFilter === p.id) ? 'all' : p.id;
         document.querySelectorAll('.team-member').forEach(m => m.classList.remove('selected'));
-        if (activeFilter !== 'all') row.classList.add('selected');
+        if (activeFilter !== 'all') {
+          row.classList.add('selected');
+          // Switch chat to this persona
+          if (!isFired && chatPersonaEl.querySelector(`option[value="${p.id}"]`)) {
+            chatPersonaEl.value = p.id;
+            switchChatPersona();
+          }
+        }
         renderBoard();
       });
 
@@ -579,12 +635,129 @@ body::before {
           }
 
           card.appendChild(meta);
+          card.addEventListener('click', () => showTicketModal(t));
           colDiv.appendChild(card);
         });
       }
 
       kanbanEl.appendChild(colDiv);
     });
+  }
+
+  // ── Ticket detail modal ─────────────────────────
+  function fuzzyScore(solverTags, ticketTags) {
+    let score = 0;
+    const st = new Set(solverTags.map(s => s.toLowerCase()));
+    for (const tt of ticketTags.map(t => t.toLowerCase())) {
+      if (st.has(tt)) { score += 1; continue; }
+      for (const s of st) { if (s.includes(tt) || tt.includes(s)) { score += 0.5; break; } }
+    }
+    return score;
+  }
+
+  function showTicketModal(ticket) {
+    // Find matching personas
+    const matches = state.personas
+      .filter(p => p.status === 'active' && p.type === 'solver')
+      .map(p => ({ ...p, score: fuzzyScore(p.picks_up || p.skills || [], ticket.tags || []) }))
+      .sort((a, b) => b.score - a.score);
+
+    const overlay = el('div', 'modal-overlay');
+    const modal = el('div', 'modal');
+
+    // Header
+    const header = el('div', 'modal-header');
+    header.appendChild(el('div', 'modal-title', `#${ticket.id} ${ticket.title}`));
+    const closeBtn = el('button', 'modal-close', '\u00D7');
+    closeBtn.addEventListener('click', () => overlay.remove());
+    header.appendChild(closeBtn);
+    modal.appendChild(header);
+
+    // Description
+    if (ticket.description) {
+      const sec = el('div', 'modal-section');
+      sec.appendChild(el('div', 'modal-label', 'Description'));
+      sec.appendChild(el('div', 'modal-text', ticket.description));
+      modal.appendChild(sec);
+    }
+
+    // Tags
+    if (ticket.tags && ticket.tags.length) {
+      const sec = el('div', 'modal-section');
+      sec.appendChild(el('div', 'modal-label', 'Tags'));
+      const tagsDiv = el('div', 'modal-tags');
+      ticket.tags.forEach(tag => tagsDiv.appendChild(el('span', 'ticket-tag', tag)));
+      sec.appendChild(tagsDiv);
+      modal.appendChild(sec);
+    }
+
+    // Meta: priority, status, created_by, assigned_to
+    const metaSec = el('div', 'modal-section');
+    metaSec.appendChild(el('div', 'modal-label', 'Details'));
+    const details = [
+      `Priority: ${(ticket.priority || 'medium').toUpperCase()}`,
+      `Status: ${ticket.status}`,
+      ticket.created_by ? `Created by: ${personaMap[ticket.created_by] || ticket.created_by}` : null,
+      ticket.assigned_to ? `Assigned to: ${personaMap[ticket.assigned_to] || ticket.assigned_to}` : 'Unassigned',
+    ].filter(Boolean).join(' \u2022 ');
+    metaSec.appendChild(el('div', 'modal-text', details));
+    modal.appendChild(metaSec);
+
+    // Result (if any)
+    if (ticket.result) {
+      const sec = el('div', 'modal-section');
+      sec.appendChild(el('div', 'modal-label', 'Result'));
+      sec.appendChild(el('div', 'modal-text', ticket.result));
+      modal.appendChild(sec);
+    }
+
+    // Matching personas
+    const matchSec = el('div', 'modal-section');
+    matchSec.appendChild(el('div', 'modal-label', 'Matching team members'));
+    if (matches.length === 0) {
+      matchSec.appendChild(el('div', 'modal-text', 'No matching solvers available'));
+    } else {
+      matches.forEach(m => {
+        const row = el('div', 'modal-match' + (ticket.assigned_to === m.id ? ' active' : ''));
+        const nameSpan = el('span', '', `${m.name} (${m.role})`);
+        row.appendChild(nameSpan);
+        const scoreSpan = el('span', 'modal-match-score',
+          m.score > 0 ? `score: ${m.score.toFixed(1)}` : 'no match');
+        row.appendChild(scoreSpan);
+        row.addEventListener('click', () => assignTicket(ticket.id, m.id, overlay));
+        matchSec.appendChild(row);
+      });
+    }
+    modal.appendChild(matchSec);
+
+    // Actions
+    const actions = el('div', 'modal-actions');
+    if (ticket.assigned_to) {
+      const unassign = el('button', 'modal-btn danger', 'UNASSIGN');
+      unassign.addEventListener('click', () => assignTicket(ticket.id, '', overlay));
+      actions.appendChild(unassign);
+    }
+    modal.appendChild(actions);
+
+    overlay.appendChild(modal);
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    document.body.appendChild(overlay);
+  }
+
+  async function assignTicket(ticketId, personaId, overlay) {
+    try {
+      const body = { assigned_to: personaId };
+      if (!personaId) body.status = 'open';
+      await fetch(`/api/tickets/${ticketId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (overlay) overlay.remove();
+      poll(); // Refresh data
+    } catch (err) {
+      console.error('Assign failed:', err);
+    }
   }
 
   // ── Render: Activity feed ──────────────────────
@@ -671,7 +844,12 @@ body::before {
     chatMessagesEl.appendChild(msg);
   }
 
+  function stripThinking(text) {
+    return text.replace(/<thinking>[\s\S]*?<\/thinking>\s*/g, '').trim();
+  }
+
   function addChatMessage(sender, text, isUser) {
+    if (!isUser) text = stripThinking(text);
     const personaId = currentChatPersona;
     if (!chatHistories[personaId]) chatHistories[personaId] = [];
     chatHistories[personaId].push({ sender, text, isUser });
@@ -740,8 +918,8 @@ body::before {
     renderBoard();
     renderActivity();
 
-    // Update chat select only if empty
-    if (chatPersonaEl.children.length === 0) renderChatSelect();
+    // Update chat select when persona list changes
+    renderChatSelect();
 
     if (!connected) {
       connected = true;

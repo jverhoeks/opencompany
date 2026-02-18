@@ -117,6 +117,34 @@ async def api_create_ticket(body: TicketCreate, session: AsyncSession = Depends(
     return ticket
 
 
+# --- Ticket update endpoint ---
+
+
+class TicketPatch(BaseModel):
+    assigned_to: str | None = None
+    status: str | None = None
+
+
+@router.patch("/tickets/{ticket_id}", response_model=TicketOut)
+async def api_patch_ticket(
+    ticket_id: int,
+    body: TicketPatch,
+    session: AsyncSession = Depends(get_session),
+):
+    ticket = await session.get(Ticket, ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    if body.assigned_to is not None:
+        ticket.assigned_to = body.assigned_to or None
+        if ticket.status == "open" and body.assigned_to:
+            ticket.status = "assigned"
+    if body.status is not None:
+        ticket.status = body.status
+    await session.commit()
+    await session.refresh(ticket)
+    return ticket
+
+
 # --- Chat endpoint ---
 
 

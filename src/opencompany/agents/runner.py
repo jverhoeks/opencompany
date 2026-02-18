@@ -2,6 +2,7 @@ import asyncio
 import concurrent.futures
 import logging
 import os
+import re
 
 from strands import Agent
 from strands.models.litellm import LiteLLMModel
@@ -65,7 +66,10 @@ async def run_persona(persona: Persona, task: str) -> str:
     try:
         result = await loop.run_in_executor(_executor, agent, task)
         logger.info("Persona %s finished task", persona.id)
-        return str(result)
+        text = str(result)
+        # Strip LLM thinking tags from output
+        text = re.sub(r"<thinking>[\s\S]*?</thinking>\s*", "", text).strip()
+        return text
     except Exception as e:
         logger.exception("Agent %s failed on task", persona.id)
         return f"Error: {e}"

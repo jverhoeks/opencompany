@@ -13,22 +13,45 @@ from opencompany.utils import _run_async
 logger = logging.getLogger(__name__)
 
 
+def _fuzzy_tag_score(solver_tags: set[str], ticket_tags: set[str]) -> float:
+    """Score a solver against ticket tags using exact + substring matching.
+
+    Exact match = 1.0 per tag, substring match = 0.5 per tag.
+    E.g. solver skill "frontend" partially matches ticket tag "frontend-dev",
+    and "design" partially matches "web-design".
+    """
+    score = 0.0
+    for tt in ticket_tags:
+        if tt in solver_tags:
+            score += 1.0
+            continue
+        # Substring: does any solver tag appear inside ticket tag or vice-versa?
+        for st in solver_tags:
+            if st in tt or tt in st:
+                score += 0.5
+                break
+    return score
+
+
 def find_best_solver(tags: list[str], solvers: list[dict]) -> dict | None:
     """Find the best solver for a ticket based on skill overlap and workload.
 
-    Falls back to the least busy solver if no tag match is found.
+    Uses fuzzy tag matching (exact + substring) and falls back to the least
+    busy solver if no match is found.
     """
     if not solvers:
         return None
 
+    ticket_tags = {t.lower() for t in tags}
     candidates = []
     for solver in solvers:
-        overlap = len(set(solver["skills"]) & set(tags))
-        if overlap > 0:
-            candidates.append((overlap, solver["workload"], solver))
+        solver_tags = {s.lower() for s in solver["skills"]}
+        score = _fuzzy_tag_score(solver_tags, ticket_tags)
+        if score > 0:
+            candidates.append((score, solver["workload"], solver))
 
     if candidates:
-        # Sort by skill overlap (desc), then workload (asc)
+        # Sort by score (desc), then workload (asc)
         candidates.sort(key=lambda x: (-x[0], x[1]))
         return candidates[0][2]
 

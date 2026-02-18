@@ -90,6 +90,7 @@ async def _get_overview_data(session: AsyncSession) -> dict:
                 "type": p.type,
                 "skills": p.skills,
                 "status": p.status,
+                "picks_up": p.picks_up or [],
                 "activity_state": p.activity_state,
                 "workload": workloads.get(p.id, 0),
                 "created": created_counts.get(p.id, 0),
