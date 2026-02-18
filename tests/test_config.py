@@ -154,3 +154,21 @@ personas: {}
     config1 = load_company_config(str(yaml_file))
     config2 = load_company_config(str(yaml_file))
     assert config1 is config2
+
+
+def test_load_real_company_yaml():
+    """The actual company.yaml loads and has required sections."""
+    config = load_company_config("config/company.yaml")
+    assert config.org_style in config.org_styles
+    assert "ceo" in config.roles
+    assert "hr" in config.roles
+    assert config.roles["ceo"].get("builtin") is True
+    assert config.roles["hr"].get("builtin") is True
+    # Only CEO + HR in personas section
+    assert "ceo" in config.personas
+    assert "hr" in config.personas
+    # Roles have required fields
+    for role_id, role in config.roles.items():
+        assert "type" in role, f"Role {role_id} missing 'type'"
+        assert "responsibilities" in role, f"Role {role_id} missing 'responsibilities'"
+        assert "tools" in role, f"Role {role_id} missing 'tools'"
