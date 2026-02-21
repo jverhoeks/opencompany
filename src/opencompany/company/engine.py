@@ -327,9 +327,11 @@ def _spawn_persona_task(persona: Persona, task: str, label: str, ticket_id: int 
             await set_persona_state(persona.id, "blocked")
         else:
             await set_persona_state(persona.id, "idle")
-            # Greedy: solver looks for next unassigned ticket
+            # Greedy: look for next unassigned ticket
             if persona.type == "solver":
                 await _greedy_pickup(persona)
+            elif persona.id == "hr":
+                await _hr_pickup()
 
     t = asyncio.create_task(_run(), name=label)
     _running_tasks.add(t)
@@ -409,6 +411,27 @@ async def _greedy_pickup(persona: Persona) -> None:
     )
     # Route through normal flow so all logging/state tracking happens
     await _route_ticket(best_ticket.id)
+
+
+_HR_TAGS = {"hr", "hiring", "firing", "headcount", "personnel", "recruit"}
+
+
+async def _hr_pickup() -> None:
+    """HR always checks for unassigned HR-tagged tickets after finishing a task."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(Ticket).where(
+                Ticket.status == "open",
+                Ticket.assigned_to.is_(None),
+            )
+        )
+        orphans = result.scalars().all()
+
+    for ticket in orphans:
+        ticket_tags = {t.lower() for t in ticket.tags}
+        if ticket_tags & _HR_TAGS:
+            logger.info("HR pickup: grabbing ticket #%d (tags=%s)", ticket.id, ticket.tags)
+            await _route_ticket(ticket.id)
 
 
 async def _escalate_to_ceo(ticket: Ticket, session) -> None:
