@@ -1106,3 +1106,116 @@ async def test_sweep_routes_orphaned_tickets(db_engine):
         updated = await session.get(Ticket, ticket_id)
         assert updated.assigned_to == "dev1"
         assert updated.status == "assigned"
+
+
+# ===========================================================================
+# Auth enforcement
+# ===========================================================================
+
+
+@pytest.fixture
+async def auth_client(db_engine, monkeypatch):
+    """Client with API_KEY set — all endpoints require bearer auth."""
+    monkeypatch.setenv("API_KEY", "test-secret-key")
+
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async def _override_get_session():
+        async with factory() as session:
+            yield session
+
+    app = FastAPI()
+    app.include_router(router, prefix="/api")
+    app.dependency_overrides[get_session] = _override_get_session
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        yield c
+
+
+async def test_api_rejects_without_key(auth_client: AsyncClient):
+    """Requests without a bearer token get 401 when API_KEY is set."""
+    endpoints = [
+        ("GET", "/api/personas"),
+        ("GET", "/api/tickets"),
+        ("POST", "/api/tickets"),
+        ("POST", "/api/chat"),
+        ("PATCH", "/api/tickets/1"),
+    ]
+    for method, path in endpoints:
+        resp = await auth_client.request(method, path)
+        assert resp.status_code == 401, (
+            f"{method} {path} should return 401, got {resp.status_code}"
+        )
+
+
+async def test_api_rejects_wrong_key(auth_client: AsyncClient):
+    """Requests with an incorrect bearer token get 401."""
+    resp = await auth_client.get(
+        "/api/personas",
+        headers={"Authorization": "Bearer wrong-key"},
+    )
+    assert resp.status_code == 401
+
+
+async def test_api_accepts_correct_key(auth_client: AsyncClient):
+    """Requests with the correct bearer token succeed."""
+    resp = await auth_client.get(
+        "/api/personas",
+        headers={"Authorization": "Bearer test-secret-key"},
+    )
+    assert resp.status_code == 200
+
+
+# ===========================================================================
+# Dashboard auth enforcement
+# ===========================================================================
+
+
+@pytest.fixture
+async def dashboard_client(db_engine, monkeypatch):
+    """Client with both API and dashboard routers, API_KEY set."""
+    from opencompany.gateway.dashboard import router as dashboard_router
+
+    monkeypatch.setenv("API_KEY", "test-secret-key")
+
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async def _override_get_session():
+        async with factory() as session:
+            yield session
+
+    app = FastAPI()
+    app.include_router(router, prefix="/api")
+    app.include_router(dashboard_router)
+
+    app.dependency_overrides[get_session] = _override_get_session
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        yield c
+
+
+async def test_dashboard_stream_requires_auth(dashboard_client: AsyncClient):
+    """GET /api/dashboard/stream returns 401 when no bearer token is provided."""
+    resp = await dashboard_client.get("/api/dashboard/stream")
+    assert resp.status_code == 401
+
+
+async def test_dashboard_overview_requires_auth(dashboard_client: AsyncClient):
+    """GET /api/dashboard/overview returns 401 when no bearer token is provided."""
+    resp = await dashboard_client.get("/api/dashboard/overview")
+    assert resp.status_code == 401
+
+
+async def test_overseer_messages_requires_auth(dashboard_client: AsyncClient):
+    """GET /api/overseer/messages returns 401 when no bearer token is provided."""
+    resp = await dashboard_client.get("/api/overseer/messages")
+    assert resp.status_code == 401
+
+
+async def test_overseer_reply_requires_auth(dashboard_client: AsyncClient):
+    """POST /api/overseer/messages/1/reply returns 401 when no bearer token is provided."""
+    resp = await dashboard_client.post(
+        "/api/overseer/messages/1/reply",
+        json={"reply": "test reply"},
+    )
+    assert resp.status_code == 401

@@ -47,7 +47,7 @@ class PersonaOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-@router.get("/personas", response_model=list[PersonaOut])
+@router.get("/personas", response_model=list[PersonaOut], dependencies=[Depends(verify_api_key)])
 async def api_list_personas(
     skip: int = 0,
     limit: int = 50,
@@ -59,7 +59,11 @@ async def api_list_personas(
     return result.scalars().all()
 
 
-@router.get("/personas/{persona_id}", response_model=PersonaOut)
+@router.get(
+    "/personas/{persona_id}",
+    response_model=PersonaOut,
+    dependencies=[Depends(verify_api_key)],
+)
 async def api_get_persona(persona_id: str, session: AsyncSession = Depends(get_session)):
     persona = await session.get(Persona, persona_id)
     if not persona:
@@ -91,7 +95,7 @@ class TicketCreate(BaseModel):
     context: dict = {}
 
 
-@router.get("/tickets", response_model=list[TicketOut])
+@router.get("/tickets", response_model=list[TicketOut], dependencies=[Depends(verify_api_key)])
 async def api_list_tickets(
     status: Literal["open", "in_progress", "resolved", "closed"] = "open",
     session: AsyncSession = Depends(get_session),
@@ -125,7 +129,11 @@ class TicketPatch(BaseModel):
     status: str | None = None
 
 
-@router.patch("/tickets/{ticket_id}", response_model=TicketOut)
+@router.patch(
+    "/tickets/{ticket_id}",
+    response_model=TicketOut,
+    dependencies=[Depends(verify_api_key)],
+)
 async def api_patch_ticket(
     ticket_id: int,
     body: TicketPatch,
