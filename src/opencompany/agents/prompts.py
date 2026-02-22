@@ -37,6 +37,10 @@ def build_system_prompt(
         f"\nBackstory: {persona.backstory}",
     ]
 
+    personality_section = _build_personality_section(persona, config)
+    if personality_section:
+        sections.append(personality_section)
+
     if responsibilities:
         sections.append(f"\nRESPONSIBILITIES:\n{responsibilities}")
 
@@ -79,6 +83,37 @@ def build_system_prompt(
         )
 
     return "\n".join(sections)
+
+
+def _build_personality_section(
+    persona: Persona,
+    config: CompanyConfig | None,
+) -> str:
+    """Build personality injection section from config."""
+    personality = None
+    if config:
+        # Check persona-level personality first
+        persona_cfg = config.personas.get(persona.id, {})
+        personality = persona_cfg.get("personality") if persona_cfg else None
+        # Fall back to role-level personality
+        if not personality:
+            role_cfg = config.roles.get(persona.id, {})
+            personality = role_cfg.get("personality") if role_cfg else None
+    if not personality:
+        return ""
+
+    lines = ["\nPERSONALITY:"]
+    if traits := personality.get("traits"):
+        lines.append(f"- Core traits: {', '.join(traits)}")
+    if style := personality.get("communication_style"):
+        lines.append(f"- Communication style: {style}")
+    if quirks := personality.get("quirks"):
+        for q in quirks:
+            lines.append(f"- Quirk: {q}")
+    if catchphrases := personality.get("catchphrases"):
+        lines.append(f"- Catchphrases you use: {', '.join(repr(c) for c in catchphrases)}")
+    lines.append("- Stay in character. Let your personality show in every response.")
+    return "\n".join(lines)
 
 
 def _get_role_config(
