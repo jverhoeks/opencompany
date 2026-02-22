@@ -21,6 +21,8 @@ roles:
   ceo:
     builtin: true
     type: manager
+    model: anthropic/claude-sonnet-4-5-20250929
+    daily_token_budget: 100000
     responsibilities: "Set strategic direction. Create high-level goals as tickets.\n\
       Tag tickets to hint at department: product, marketing, hr.\nDecide what roles\
       \ and people the company needs \u2014 YOU make hiring\ndecisions. Create HR-tagged\
@@ -41,6 +43,8 @@ roles:
   hr:
     builtin: true
     type: manager
+    model: anthropic/claude-haiku-4-5-20251001
+    daily_token_budget: 150000
     responsibilities: 'Handle hiring and firing. Evaluate skill gaps.
 
       When hiring, pick the right role from the catalog.
@@ -63,6 +67,8 @@ roles:
     - create_role
   pm:
     type: manager
+    model: anthropic/claude-haiku-4-5-20251001
+    daily_token_budget: 150000
     responsibilities: "Break CEO goals into department-specific sub-tickets.\nRoute\
       \ via tags: backend, frontend, architecture \u2192 tech-lead.\nmarketing, content,\
       \ sales-page \u2192 marketing-lead.\n"
@@ -80,6 +86,8 @@ roles:
     routes_to: lead
   tech-lead:
     type: lead
+    model: anthropic/claude-haiku-4-5-20251001
+    daily_token_budget: 150000
     tag_match:
     - backend
     - frontend
@@ -110,6 +118,8 @@ roles:
     routes_to: solver
   marketing-lead:
     type: lead
+    model: anthropic/claude-haiku-4-5-20251001
+    daily_token_budget: 150000
     tag_match:
     - marketing
     - content
@@ -136,6 +146,8 @@ roles:
     routes_to: solver
   backend-dev:
     type: solver
+    model: anthropic/claude-haiku-4-5-20251001
+    daily_token_budget: 200000
     tag_match:
     - backend
     - python
@@ -161,6 +173,8 @@ roles:
     - contact_overseer
   frontend-dev:
     type: solver
+    model: anthropic/claude-haiku-4-5-20251001
+    daily_token_budget: 200000
     tag_match:
     - frontend
     - html
@@ -187,6 +201,8 @@ roles:
     - contact_overseer
   content-writer:
     type: solver
+    model: anthropic/claude-haiku-4-5-20251001
+    daily_token_budget: 200000
     tag_match:
     - content
     - copy
@@ -212,6 +228,8 @@ roles:
     - web_search
   developer:
     type: solver
+    model: anthropic/claude-haiku-4-5-20251001
+    daily_token_budget: 200000
     tag_match:
     - code
     - development

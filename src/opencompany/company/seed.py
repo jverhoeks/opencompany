@@ -59,6 +59,8 @@ async def seed_company(config_path: str = "config/company.yaml"):
                 watches=p.get("watches", []),
                 picks_up=p.get("picks_up", []),
                 tools=p.get("tools", []),
+                model_id=p.get("model_id"),
+                daily_token_budget=p.get("daily_token_budget", 0),
                 backstory=p.get("backstory", ""),
             )
             session.add(persona)
@@ -86,6 +88,8 @@ def _build_persona_list_from_dict(personas: dict, roles: dict) -> list[dict]:
                 "tools": role_config.get("tools", []),
                 "picks_up": role_config.get("tag_match", []),
                 "reports_to": pdata.get("reports_to"),
+                "model_id": role_config.get("model"),
+                "daily_token_budget": role_config.get("daily_token_budget", 0),
                 "backstory": pdata.get("backstory", ""),
             }
         )

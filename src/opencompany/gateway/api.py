@@ -180,3 +180,41 @@ async def api_chat(body: ChatRequest, session: AsyncSession = Depends(get_sessio
     result = await run_persona(persona, wrapped_message)
     text = result.text if hasattr(result, "text") else str(result)
     return ChatResponse(response=text)
+
+
+# --- Budget endpoints ---
+
+
+@router.get("/budget", dependencies=[Depends(verify_api_key)])
+async def api_list_budgets():
+    from opencompany.company.budget import get_all_budget_statuses
+
+    return await get_all_budget_statuses()
+
+
+@router.get("/budget/{persona_id}", dependencies=[Depends(verify_api_key)])
+async def api_get_budget(persona_id: str):
+    from opencompany.company.budget import get_budget_status
+
+    status = await get_budget_status(persona_id)
+    if not status:
+        raise HTTPException(status_code=404, detail="Persona not found")
+    return status
+
+
+@router.post("/budget/{persona_id}/reset", dependencies=[Depends(verify_api_key)])
+async def api_reset_budget(persona_id: str):
+    from opencompany.company.budget import reset_budget
+
+    found = await reset_budget(persona_id)
+    if not found:
+        raise HTTPException(status_code=404, detail="Persona not found")
+    return {"status": "ok", "persona_id": persona_id}
+
+
+@router.post("/budget/reset-all", dependencies=[Depends(verify_api_key)])
+async def api_reset_all_budgets():
+    from opencompany.company.budget import reset_all_budgets
+
+    count = await reset_all_budgets()
+    return {"status": "ok", "reset_count": count}

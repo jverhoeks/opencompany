@@ -310,18 +310,40 @@ async def _trigger_review(ticket_id: int):
 
 
 def _spawn_persona_task(persona: Persona, task: str, label: str, ticket_id: int | None = None):
-    """Fire-and-forget an async persona run with state tracking."""
+    """Fire-and-forget an async persona run with state tracking and budget enforcement."""
 
     async def _run():
+        from opencompany.company.budget import check_budget, consume_tokens
+
+        # Budget gate: skip if over daily budget
+        has_budget, remaining = await check_budget(persona.id)
+        if not has_budget:
+            logger.warning(
+                "Persona %s over daily budget (remaining=%d), skipping task %s",
+                persona.id,
+                remaining,
+                label,
+            )
+            await set_persona_state(persona.id, "blocked")
+            return
+
         try:
             await set_persona_state(persona.id, "working")
             if ticket_id:
                 await _set_ticket_in_progress(ticket_id, persona.id)
             result = await run_persona(persona, task)
 
+            # Extract token counts (safely handle non-int values from mocks)
+            in_tok = result.input_tokens if isinstance(result.input_tokens, int) else 0
+            out_tok = result.output_tokens if isinstance(result.output_tokens, int) else 0
+
             # Store token usage on ticket
-            if ticket_id and (result.input_tokens or result.output_tokens):
-                await _add_ticket_tokens(ticket_id, result.input_tokens, result.output_tokens)
+            if ticket_id and (in_tok or out_tok):
+                await _add_ticket_tokens(ticket_id, in_tok, out_tok)
+
+            # Consume tokens from persona budget
+            if in_tok or out_tok:
+                await consume_tokens(persona.id, in_tok, out_tok)
         except Exception:
             logger.exception("Background persona task %s failed", label)
             await set_persona_state(persona.id, "blocked")

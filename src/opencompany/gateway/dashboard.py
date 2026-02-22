@@ -96,6 +96,9 @@ async def _get_overview_data(session: AsyncSession) -> dict:
                 "created": created_counts.get(p.id, 0),
                 "done": done_counts.get(p.id, 0),
                 "actions": action_counts.get(p.id, 0),
+                "model_id": p.model_id,
+                "daily_token_budget": p.daily_token_budget or 0,
+                "tokens_used_today": p.tokens_used_today or 0,
             }
             for p in personas
         ],
