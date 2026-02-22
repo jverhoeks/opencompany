@@ -204,6 +204,7 @@ roles:
     - send_message
     - contact_overseer
     - web_fetch
+    - publish_file
   frontend-dev:
     type: solver
     model: anthropic/claude-haiku-4-5-20251001
@@ -238,6 +239,7 @@ roles:
     - send_message
     - contact_overseer
     - web_fetch
+    - publish_file
   content-writer:
     type: solver
     model: anthropic/claude-haiku-4-5-20251001
@@ -271,6 +273,7 @@ roles:
     - contact_overseer
     - web_search
     - web_fetch
+    - publish_file
   developer:
     type: solver
     model: anthropic/claude-haiku-4-5-20251001
@@ -300,6 +303,7 @@ roles:
     - send_message
     - contact_overseer
     - web_fetch
+    - publish_file
 personas:
   ceo:
     role: ceo

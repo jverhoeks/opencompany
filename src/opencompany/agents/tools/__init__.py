@@ -1,4 +1,10 @@
-from opencompany.agents.tools.code import grep_code, list_files, read_file, write_file
+from opencompany.agents.tools.code import (
+    grep_code,
+    list_files,
+    publish_file,
+    read_file,
+    write_file,
+)
 from opencompany.agents.tools.company import create_role, fire_persona, hire_persona, list_team
 from opencompany.agents.tools.memory import recall, remember
 from opencompany.agents.tools.messaging import send_message
@@ -22,6 +28,7 @@ ALL_TOOLS = {
     "send_message": send_message,
     "web_search": web_search,
     "web_fetch": web_fetch,
+    "publish_file": publish_file,
     "remember": remember,
     "recall": recall,
 }
