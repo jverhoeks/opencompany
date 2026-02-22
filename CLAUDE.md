@@ -5,10 +5,10 @@ Virtual AI company — autonomous agent personas coordinating via a task board.
 ## Stack
 
 - **Python 3.14+**, managed with **uv**
-- **FastAPI** + **Uvicorn** — REST gateway
+- **FastAPI** + **Uvicorn** — REST gateway (Bearer token auth)
 - **SQLAlchemy 2 (async)** + **asyncpg** — Postgres models
 - **Redis** — event bus (`opencompany.events.bus`)
-- **APScheduler** — periodic scheduling
+- **APScheduler** — periodic scheduling (sweep, CEO kickoff, heartbeat)
 - **Strands Agents** + **LiteLLM** — agent runtime
 - **python-telegram-bot** — Telegram channel adapter
 
@@ -17,23 +17,34 @@ Virtual AI company — autonomous agent personas coordinating via a task board.
 ```
 src/opencompany/
   main.py            # entrypoint
-  models/            # SQLAlchemy models (base, engine, db)
-  company/           # personas, taskboard, scheduler, seed, engine
-  agents/            # runner, prompts, tools/
-  events/            # async event bus
-  gateway/           # FastAPI API + channel adapters (telegram)
-tests/               # pytest tests
-config/company.yaml  # company definition (personas, departments)
+  models/            # SQLAlchemy models (Persona, Ticket, PersonaMemory, WorkLog)
+  company/           # engine, config, scheduler, personas, taskboard, budget, memory, trust
+  agents/            # runner, prompts, tools/ (18 tools gated by trust tiers)
+  events/            # Redis pub/sub event bus
+  gateway/           # FastAPI API + dashboard + Telegram adapter
+tests/               # pytest tests (143 tests, 61% coverage)
+config/company.yaml  # org chart, roles, personas, personalities
 ```
 
 ## Commands
 
 ```bash
-uv run opencompany          # start the server
-uv run pytest               # run tests
-uv run ruff check .         # lint
-uv run ruff format .        # format
+uv run opencompany              # start the server
+uv run pytest                   # run tests
+uv run pytest --cov=opencompany # run with coverage
+uv run ruff check .             # lint
+uv run ruff format .            # format
 ```
+
+## Key subsystems
+
+- **Trust tiers**: external < solver < lead < full — controls tool access per persona type
+- **Personality**: each persona has traits, communication style, quirks, catchphrases in prompts
+- **Workspaces**: private per-persona + shared workspace with `publish_file`
+- **Memory**: durable store/recall/compact across agent runs (PersonaMemory table)
+- **Budget**: per-persona daily token limits tracked in DB
+- **Heartbeat**: idle personas autonomously check in on configurable interval
+- **Routing**: hierarchical (CEO→PM→Lead→Solver), dictator, or holacracy org styles
 
 ## Conventions
 
@@ -42,3 +53,5 @@ uv run ruff format .        # format
 - Keep imports sorted (ruff handles this via `isort` rules).
 - Use `async`/`await` throughout — no blocking I/O in the event loop.
 - Environment variables go in `.env` (never committed); see `.env.example`.
+- Tests use in-memory SQLite via `db_engine` fixture in `conftest.py`.
+- Mock `run_persona` with `AsyncMock` and patch `async_session` with test factory for e2e tests.

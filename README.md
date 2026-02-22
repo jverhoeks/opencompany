@@ -1,9 +1,9 @@
 # OpenCompany
 
 A virtual AI company where autonomous agent personas work like real employees.
-Observers scan your codebase on a schedule, create tickets for issues they find,
-solvers pick up those tickets and do the work, and managers can hire new personas
-on the fly when the team is overloaded.
+Each persona has a distinct personality, trust level, and set of tools.
+They coordinate through a shared task board, route work through an org hierarchy,
+and can hire new team members when the company needs more capacity.
 
 ```
           Telegram / API
@@ -22,14 +22,23 @@ on the fly when the team is overloaded.
 
 ## How it works
 
-The system is built around four persona types, defined in `config/company.yaml`:
+The system is built around a configurable org hierarchy defined in `config/company.yaml`.
+Personas are assigned one of four types:
 
 | Type | What they do | Triggered by |
 |---|---|---|
-| **Observer** | Watches sources on a schedule, creates tickets | Cron (APScheduler) |
+| **Manager** | Delegates, prioritises, hires and fires personas | Chat, CEO kickoff, heartbeat |
+| **Lead** | Routes work to solvers, reviews architecture | Tag-matched ticket routing |
 | **Solver** | Picks up tickets matching their skills, does the work | `ticket.created` event |
-| **Reviewer** | Validates completed work, approves or rejects | `ticket.review` event |
-| **Manager** | Delegates, prioritises, hires and fires personas | Chat, escalations |
+| **Observer** | Watches sources on a schedule, creates tickets | Cron (APScheduler) |
+
+### Org hierarchy & routing
+
+Tickets flow through the hierarchy based on the active org style:
+
+- **Hierarchical** (default): CEO → PM → Lead → Solver (tag-matched at each level)
+- **Dictator**: CEO assigns everything directly
+- **Holacracy**: Best-match solver picks up work directly
 
 ### Ticket lifecycle
 
@@ -40,26 +49,53 @@ open --> assigned --> in_progress --> review --> done
                                     rejected --> open (reassigned)
 ```
 
-When an observer creates a ticket, the engine publishes a `ticket.created` event
-on Redis. The company engine matches the ticket's tags against solver skills,
-picks the solver with the lowest workload, and dispatches the agent automatically.
+### Personality system
 
-### Example: security scan
+Each persona has a unique personality block with traits, communication style,
+quirks, and catchphrases. These are injected into the system prompt so every
+persona responds in character.
 
-1. APScheduler fires every 6 hours, triggering the **Security Analyst** (observer)
-2. The analyst scans `/src/**` using `read_file` and `grep_code` tools
-3. Finds a vulnerability and calls `create_ticket(priority="critical", tags=["security"])`
-4. The **Security Engineer** (solver) auto-claims the ticket via skill matching
-5. The engineer reads the ticket context, investigates, and writes a fix
-6. Ticket moves to `review` -- the analyst reviews and approves
+### Trust tiers
 
-All actions are logged in the `work_log` table for performance tracking.
+A four-level trust system controls tool access:
+
+| Tier | Level | Access |
+|---|---|---|
+| **external** | 0 | Read-only (read_file, list_files, grep_code, list_tickets, web_search) |
+| **solver** | 1 | + write_file, update_ticket, web_fetch, publish_file |
+| **lead** | 2 | + create_ticket, send_message, contact_overseer |
+| **full** | 3 | + hire_persona, fire_persona, create_role |
+
+### Workspaces
+
+Each persona gets a private workspace (`workspaces/private/{persona_id}/`).
+A shared workspace (`workspaces/shared/`) lets personas publish files for
+others to read via the `publish_file` tool.
+
+### Durable memory
+
+Personas retain knowledge across runs. The `remember` and `recall` tools
+store facts, decisions, and context in the database. When memories exceed
+a threshold, they are automatically compacted into summaries.
+
+### Token budgets
+
+Each persona has a configurable daily token budget. The system tracks usage
+and blocks personas that exceed their limit, preventing runaway costs.
+
+### Scheduler jobs
+
+| Job | Interval | Purpose |
+|---|---|---|
+| **Sweep** | 30s | Routes open unassigned tickets |
+| **CEO kickoff** | Configurable | CEO reviews board, creates strategic work |
+| **Heartbeat** | Configurable | Idle personas autonomously check in and act |
 
 ## Quickstart
 
 ### Prerequisites
 
-- Python 3.13+
+- Python 3.14+
 - [uv](https://docs.astral.sh/uv/)
 - Docker & Docker Compose (for Postgres and Redis)
 - A LiteLLM-compatible API endpoint
@@ -77,6 +113,19 @@ uv sync
 cp .env.example .env
 # Edit .env with your LiteLLM proxy URL, API key, and optional Telegram bot token
 ```
+
+Key environment variables:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `OPENAI_API_KEY` | (required) | LiteLLM proxy API key |
+| `OPENAI_API_BASE` | (required) | LiteLLM proxy URL |
+| `DATABASE_URL` | (required) | Postgres connection string |
+| `REDIS_URL` | (required) | Redis connection string |
+| `API_KEY` | (empty = disabled) | Bearer token for API auth |
+| `CEO_KICKOFF_INTERVAL_SECONDS` | 0 (disabled) | CEO auto-review interval |
+| `HEARTBEAT_INTERVAL_SECONDS` | 0 (disabled) | Persona heartbeat interval |
+| `TELEGRAM_BOT_TOKEN` | (optional) | Telegram bot integration |
 
 ### 3. Start infrastructure
 
@@ -101,96 +150,136 @@ docker compose up --build
 
 ## API
 
+All endpoints require Bearer token authentication when `API_KEY` is set.
+
+```bash
+# Add to all requests when auth is enabled:
+-H "Authorization: Bearer <your-api-key>"
+```
+
+### Personas
+
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/health` | Health check |
-| `GET` | `/api/personas` | List active personas |
+| `GET` | `/api/personas` | List active personas (paginated) |
 | `GET` | `/api/personas/{id}` | Get persona details |
+
+### Tickets
+
+| Method | Endpoint | Description |
+|---|---|---|
 | `GET` | `/api/tickets?status=open` | List tickets by status |
 | `POST` | `/api/tickets` | Create a ticket |
+| `PATCH` | `/api/tickets/{id}` | Update ticket (assign, change status) |
+
+### Chat
+
+| Method | Endpoint | Description |
+|---|---|---|
 | `POST` | `/api/chat` | Chat with a persona |
 
-### Create a ticket
+### Budget
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/budget` | List all persona budgets |
+| `GET` | `/api/budget/{id}` | Get persona budget |
+| `POST` | `/api/budget/{id}/reset` | Reset persona's daily usage |
+| `POST` | `/api/budget/reset-all` | Reset all daily usage |
+
+### Other
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/health` | Health check (db + redis) |
+| `GET` | `/dashboard` | Web dashboard UI |
+
+### Examples
 
 ```bash
+# Create a ticket
 curl -X POST http://localhost:8000/api/tickets \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $API_KEY" \
   -d '{"title": "Review auth module", "priority": "high", "tags": ["security"]}'
-```
 
-### Chat with a persona
-
-```bash
+# Chat with a persona
 curl -X POST http://localhost:8000/api/chat \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $API_KEY" \
   -d '{"persona_id": "ceo", "message": "What is the team working on?"}'
 ```
+
+## Agent tools
+
+18 tools available to personas (gated by trust tier):
+
+| Tool | Trust tier | Purpose |
+|---|---|---|
+| `read_file` | external | Read files from workspace |
+| `write_file` | solver | Write files to private workspace |
+| `list_files` | external | List directory contents |
+| `grep_code` | external | Search code with regex |
+| `publish_file` | solver | Copy file from private to shared workspace |
+| `create_ticket` | lead | Create task board items |
+| `list_tickets` | external | Query task board |
+| `update_ticket` | solver | Update ticket status/assignment |
+| `hire_persona` | full | Hire a new persona |
+| `fire_persona` | full | Remove a persona |
+| `create_role` | full | Define a new role |
+| `list_team` | external | View all personas |
+| `send_message` | lead | Message another persona |
+| `contact_overseer` | lead | Request guidance |
+| `web_search` | external | Search the web |
+| `web_fetch` | solver | Fetch and read web pages |
+| `remember` | external | Store a memory |
+| `recall` | external | Retrieve memories |
 
 ## Project structure
 
 ```
 src/opencompany/
-  main.py                     entrypoint (FastAPI lifespan)
-  gateway/
-    api.py                    REST endpoints
-    channels/telegram.py      Telegram bot adapter
-  company/
-    engine.py                 event handling, auto-assignment, solver dispatch
-    taskboard.py              ticket CRUD, skill matching
-    personas.py               hire / fire / list personas
-    scheduler.py              APScheduler observer triggers
-    seed.py                   seed personas from company.yaml
-  agents/
-    runner.py                 Strands agent creation and execution
-    prompts.py                system prompt builder
-    tools/                    @tool functions (tickets, code, company)
+  main.py                     Entrypoint (FastAPI lifespan)
   models/
-    db.py                     SQLAlchemy models (Persona, Ticket, WorkLog, ...)
-    base.py                   DeclarativeBase
-    engine.py                 async session factory
+    db.py                     Persona, Ticket, PersonaMemory, WorkLog
+    base.py                   SQLAlchemy DeclarativeBase
+    engine.py                 Async session factory
+  company/
+    config.py                 Load & parse company.yaml
+    engine.py                 Ticket routing, persona dispatch, event handling
+    taskboard.py              Skill matching, ticket assignment
+    personas.py               Hire / fire / list personas
+    scheduler.py              Sweep, CEO kickoff, heartbeat jobs
+    seed.py                   Seed personas from company.yaml
+    budget.py                 Token budget tracking
+    memory.py                 Durable persona memory (store/recall/compact)
+    trust.py                  Trust tier tool filtering
+    messaging.py              Inter-persona messaging
+    overseer.py               Overseer guidance interface
+  agents/
+    runner.py                 Strands agent execution
+    prompts.py                System prompt builder (+ personality injection)
+    tools/                    @tool functions (18 tools)
   events/
-    bus.py                    Redis pub/sub
-config/company.yaml           initial org chart and persona definitions
-workspaces/                   per-persona runtime sandboxes
+    bus.py                    Redis pub/sub event bus
+  gateway/
+    api.py                    REST API endpoints (Bearer auth)
+    dashboard.py              Web dashboard UI
+    channels/telegram.py      Telegram bot adapter
+config/company.yaml           Org chart, roles, personas, personalities
+workspaces/                   Per-persona runtime sandboxes
 ```
-
-## Configuration
-
-Personas are defined in `config/company.yaml`. Each persona has an ID, name,
-role, type, skill tags, tool access list, and a backstory that shapes their
-behaviour. Observer personas additionally have `watches` entries that control
-what they scan and how often.
-
-Managers have access to `hire_persona` and `fire_persona` tools, so the company
-can grow dynamically at runtime.
-
-## Stack
-
-| Component | Technology |
-|---|---|
-| API gateway | FastAPI + Uvicorn |
-| Agent runtime | [Strands Agents](https://github.com/strands-agents/sdk-python) |
-| LLM routing | LiteLLM (external proxy) |
-| Database | PostgreSQL 17 + SQLAlchemy 2 (async) |
-| Event bus | Redis 7 pub/sub |
-| Scheduler | APScheduler |
-| Chat | python-telegram-bot |
-| Packaging | uv + hatchling |
 
 ## Development
 
 ```bash
-uv run pytest               # run tests
-uv run ruff check .         # lint
-uv run ruff format .        # format
+uv run pytest                              # run tests (143 tests)
+uv run pytest --cov=opencompany            # run with coverage (61%)
+uv run ruff check .                        # lint
+uv run ruff format .                       # format
 ```
 
 Pre-commit hooks run `ruff check --fix` and `ruff format` on every commit.
-Install them with:
-
-```bash
-pre-commit install
-```
 
 ## License
 
