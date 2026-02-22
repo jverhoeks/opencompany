@@ -1,6 +1,31 @@
+import html
 import os
+import re
+import urllib.request
 
 from strands import tool
+
+
+@tool
+def web_fetch(url: str, max_chars: int = 5000) -> str:
+    """Fetch a web page and return its text content (HTML tags stripped).
+
+    Args:
+        url: The URL to fetch
+        max_chars: Maximum characters to return (default 5000)
+    """
+    if not url.startswith(("http://", "https://")):
+        return "Error: URL must start with http:// or https://"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "OpenCompany/1.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+        text = re.sub(r"<[^>]+>", " ", raw)
+        text = html.unescape(text)
+        text = re.sub(r"\s+", " ", text).strip()
+        return text[:max_chars]
+    except Exception as e:
+        return f"Web fetch error: {e}"
 
 
 @tool

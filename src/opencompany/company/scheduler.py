@@ -1,10 +1,13 @@
-"""Scheduler — periodic sweep for orphaned tickets + CEO auto-kickoff.
+"""Scheduler — periodic sweep, CEO kickoff, and persona heartbeat.
 
 Runs a sweep every 30 seconds to find open unassigned tickets
 and try to route them. Tickets with no matching solver escalate to CEO.
 
 Optionally runs a CEO kickoff job that triggers the CEO to review
 the board and create work. Disabled by default (CEO_KICKOFF_INTERVAL_SECONDS=0).
+
+Optionally runs a per-persona heartbeat that makes idle personas
+check in autonomously. Disabled by default (HEARTBEAT_INTERVAL_SECONDS=0).
 """
 
 import logging
@@ -69,6 +72,53 @@ async def _ceo_kickoff_job():
         logger.exception("CEO kickoff job failed")
 
 
+HEARTBEAT_PROMPTS = {
+    "manager": (
+        "Take a moment to review the state of the company.\n"
+        "Check the task board for stuck tickets, unassigned work, or gaps.\n"
+        "If you see something that needs action, take it."
+    ),
+    "lead": (
+        "Review your department's tickets.\n"
+        "Check if any are stuck, need re-assignment, or need new sub-tasks.\n"
+        "Take action if needed."
+    ),
+    "solver": (
+        "Check the task board for any unassigned tickets that match your skills.\n"
+        "If you find one, pick it up."
+    ),
+}
+
+
+async def _persona_heartbeat_job():
+    """Periodic heartbeat: idle personas check in and take autonomous action."""
+    try:
+        from sqlalchemy import select
+
+        from opencompany.company.budget import check_budget
+        from opencompany.company.engine import _spawn_persona_task
+        from opencompany.models.db import Persona
+        from opencompany.models.engine import async_session
+
+        async with async_session() as session:
+            result = await session.execute(
+                select(Persona).where(
+                    Persona.status == "active",
+                    Persona.activity_state == "idle",
+                )
+            )
+            idle_personas = result.scalars().all()
+
+        for persona in idle_personas:
+            has_budget, _ = await check_budget(persona.id)
+            if not has_budget:
+                continue
+            prompt = HEARTBEAT_PROMPTS.get(persona.type, HEARTBEAT_PROMPTS["solver"])
+            _spawn_persona_task(persona, prompt, f"heartbeat-{persona.id}")
+    except Exception:
+        logger.exception("Persona heartbeat job failed")
+
+
 def start_scheduler():
     scheduler.add_job(_sweep_job, "interval", seconds=30, id="sweep_unassigned")
 
@@ -81,5 +131,15 @@ def start_scheduler():
             id="ceo_kickoff",
         )
         logger.info("CEO kickoff enabled: every %d seconds", ceo_interval)
+
+    heartbeat_interval = int(os.environ.get("HEARTBEAT_INTERVAL_SECONDS", "0"))
+    if heartbeat_interval > 0:
+        scheduler.add_job(
+            _persona_heartbeat_job,
+            "interval",
+            seconds=heartbeat_interval,
+            id="persona_heartbeat",
+        )
+        logger.info("Persona heartbeat enabled: every %d seconds", heartbeat_interval)
 
     scheduler.start()
