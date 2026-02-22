@@ -1532,3 +1532,105 @@ async def test_engine_budget_blocks_over_budget_persona(db_engine):
     async with factory() as session:
         persona = await session.get(Persona, "over-budget")
         assert persona.activity_state == "blocked"
+
+
+# ===========================================================================
+# Heartbeat
+# ===========================================================================
+
+
+async def test_heartbeat_triggers_idle_personas(db_engine):
+    """Heartbeat job spawns tasks for idle personas with budget."""
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async with factory() as session:
+        session.add(
+            Persona(
+                id="idle-dev",
+                name="Idle Dev",
+                role="Dev",
+                type="solver",
+                backstory="Idle dev.",
+                activity_state="idle",
+                daily_token_budget=100000,
+            )
+        )
+        await session.commit()
+
+    with (
+        patch("opencompany.models.engine.async_session", factory),
+        patch("opencompany.company.budget.async_session", factory),
+        patch("opencompany.company.engine._spawn_persona_task") as mock_spawn,
+    ):
+        from opencompany.company.scheduler import _persona_heartbeat_job
+
+        await _persona_heartbeat_job()
+
+    mock_spawn.assert_called_once()
+    call_args = mock_spawn.call_args
+    assert call_args[0][0].id == "idle-dev"
+    assert "heartbeat-idle-dev" in call_args[0][2]
+
+
+async def test_heartbeat_skips_busy_personas(db_engine):
+    """Heartbeat skips personas in 'working' state."""
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async with factory() as session:
+        session.add(
+            Persona(
+                id="busy-dev",
+                name="Busy Dev",
+                role="Dev",
+                type="solver",
+                backstory="Working.",
+                activity_state="working",
+                daily_token_budget=100000,
+            )
+        )
+        await session.commit()
+
+    with (
+        patch("opencompany.models.engine.async_session", factory),
+        patch("opencompany.company.budget.async_session", factory),
+        patch("opencompany.company.engine._spawn_persona_task") as mock_spawn,
+    ):
+        from opencompany.company.scheduler import _persona_heartbeat_job
+
+        await _persona_heartbeat_job()
+
+    mock_spawn.assert_not_called()
+
+
+async def test_heartbeat_skips_over_budget(db_engine):
+    """Heartbeat skips personas who are over budget."""
+    from datetime import UTC, datetime
+
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async with factory() as session:
+        session.add(
+            Persona(
+                id="broke-dev",
+                name="Broke Dev",
+                role="Dev",
+                type="solver",
+                backstory="Over budget.",
+                activity_state="idle",
+                daily_token_budget=100,
+                tokens_used_today=200,
+                budget_reset_at=datetime.now(UTC),
+            )
+        )
+        await session.commit()
+
+    with (
+        patch("opencompany.models.engine.async_session", factory),
+        patch("opencompany.company.budget.async_session", factory),
+        patch("opencompany.company.engine._spawn_persona_task") as mock_spawn,
+    ):
+        from opencompany.company.scheduler import _persona_heartbeat_job
+
+        await _persona_heartbeat_job()
+
+    mock_spawn.assert_not_called()
