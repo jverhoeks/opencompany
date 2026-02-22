@@ -1,5 +1,6 @@
 from opencompany.agents.tools.code import grep_code, list_files, read_file, write_file
 from opencompany.agents.tools.company import create_role, fire_persona, hire_persona, list_team
+from opencompany.agents.tools.memory import recall, remember
 from opencompany.agents.tools.messaging import send_message
 from opencompany.agents.tools.overseer import contact_overseer
 from opencompany.agents.tools.tickets import create_ticket, list_tickets, update_ticket
@@ -20,4 +21,6 @@ ALL_TOOLS = {
     "contact_overseer": contact_overseer,
     "send_message": send_message,
     "web_search": web_search,
+    "remember": remember,
+    "recall": recall,
 }
