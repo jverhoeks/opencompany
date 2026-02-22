@@ -36,7 +36,7 @@ def test_company_tool_schema():
 def test_all_tools_registry():
     from opencompany.agents.tools import ALL_TOOLS
 
-    assert len(ALL_TOOLS) == 14
+    assert len(ALL_TOOLS) == 18
     for name, func in ALL_TOOLS.items():
         assert callable(func), f"{name} is not callable"
 
@@ -239,3 +239,43 @@ def test_list_team_tool_empty():
         result = list_team.__wrapped__()
 
     assert "No active personas" in result
+
+
+# ---------------------------------------------------------------------------
+# Behavioral tests: web tools
+# ---------------------------------------------------------------------------
+def test_web_fetch_bad_url():
+    """web_fetch rejects non-http URLs."""
+    from opencompany.agents.tools.web import web_fetch
+
+    result = web_fetch.__wrapped__(url="ftp://example.com")
+    assert "Error" in result
+    assert "http" in result
+
+
+def test_web_fetch_strips_html(monkeypatch):
+    """web_fetch strips HTML tags from response."""
+    import io
+    import urllib.request
+
+    html_body = b"<html><body><h1>Hello</h1><p>World</p></body></html>"
+
+    class FakeResponse(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            pass
+
+    def fake_urlopen(*_args, **_kwargs):
+        return FakeResponse(html_body)
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    from opencompany.agents.tools.web import web_fetch
+
+    result = web_fetch.__wrapped__(url="https://example.com")
+    assert "Hello" in result
+    assert "World" in result
+    assert "<h1>" not in result
+    assert "<p>" not in result

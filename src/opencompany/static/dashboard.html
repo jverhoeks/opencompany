@@ -113,6 +113,19 @@ body::before {
 .member-stat.actions { background: rgba(167,139,250,0.08); color: var(--purple); border-color: rgba(167,139,250,0.15); }
 .member-stat .stat-val { font-weight: 600; }
 
+/* Budget bar */
+.budget-bar-wrap {
+  margin-top: 4px; height: 4px; background: var(--bg-deep); border-radius: 2px;
+  overflow: hidden; position: relative;
+}
+.budget-bar-fill {
+  height: 100%; border-radius: 2px; transition: width 0.3s;
+}
+.budget-label {
+  font-family: var(--font-mono); font-size: 9px; color: var(--text-dim);
+  margin-top: 2px;
+}
+
 /* State dots */
 .state-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .state-dot.idle { background: #555; }
@@ -559,6 +572,20 @@ body::before {
           stats.appendChild(idle);
         }
         info.appendChild(stats);
+
+        // Budget bar
+        if (p.daily_token_budget > 0) {
+          const pct = Math.min(100, Math.round((p.tokens_used_today || 0) / p.daily_token_budget * 100));
+          const barWrap = el('div', 'budget-bar-wrap');
+          const barFill = el('div', 'budget-bar-fill');
+          barFill.style.width = pct + '%';
+          barFill.style.background = pct >= 90 ? 'var(--red)' : pct >= 70 ? 'var(--amber)' : 'var(--green)';
+          barWrap.appendChild(barFill);
+          info.appendChild(barWrap);
+          const label = el('div', 'budget-label',
+            formatTokens(p.tokens_used_today || 0) + ' / ' + formatTokens(p.daily_token_budget) + ' tokens (' + pct + '%)');
+          info.appendChild(label);
+        }
       }
       row.appendChild(info);
 
@@ -836,6 +863,34 @@ body::before {
       `Active: ${p.workload || 0} \u2022 Created: ${p.created || 0} \u2022 Done: ${p.done || 0} \u2022 Actions: ${p.actions || 0}`
     ));
     modal.appendChild(statsSec);
+
+    // Budget
+    if (p.daily_token_budget > 0) {
+      const budgetSec = el('div', 'modal-section');
+      budgetSec.appendChild(el('div', 'modal-label', 'Token Budget'));
+      const pct = Math.min(100, Math.round((p.tokens_used_today || 0) / p.daily_token_budget * 100));
+      const barWrap = el('div', 'budget-bar-wrap');
+      barWrap.style.height = '8px';
+      const barFill = el('div', 'budget-bar-fill');
+      barFill.style.width = pct + '%';
+      barFill.style.background = pct >= 90 ? 'var(--red)' : pct >= 70 ? 'var(--amber)' : 'var(--green)';
+      barWrap.appendChild(barFill);
+      budgetSec.appendChild(barWrap);
+      const budgetText = el('div', 'modal-text');
+      budgetText.style.fontFamily = 'var(--font-mono)';
+      budgetText.style.fontSize = '11px';
+      budgetText.textContent = `${formatTokens(p.tokens_used_today || 0)} / ${formatTokens(p.daily_token_budget)} tokens (${pct}%)`;
+      if (p.model_id) {
+        budgetText.textContent += ` \u2022 Model: ${p.model_id}`;
+      }
+      budgetSec.appendChild(budgetText);
+      modal.appendChild(budgetSec);
+    } else if (p.model_id) {
+      const modelSec = el('div', 'modal-section');
+      modelSec.appendChild(el('div', 'modal-label', 'Model'));
+      modelSec.appendChild(el('div', 'modal-text', p.model_id));
+      modal.appendChild(modelSec);
+    }
 
     // Assigned tickets
     const assigned = state.tickets.filter(t =>

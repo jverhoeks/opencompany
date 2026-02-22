@@ -1,9 +1,43 @@
 import os
+import shutil
 import subprocess
 
 from strands import tool
 
 WORKSPACE_ROOT = os.path.realpath(os.environ.get("WORKSPACE_ROOT", "workspaces"))
+
+
+def _persona_workspace(persona_id: str) -> str:
+    """Return path to persona's private workspace."""
+    return os.path.join(WORKSPACE_ROOT, "private", persona_id)
+
+
+def _shared_workspace() -> str:
+    """Return path to shared workspace."""
+    return os.path.join(WORKSPACE_ROOT, "shared")
+
+
+def _resolve_workspace_path(path: str, persona_id: str = "") -> str:
+    """Resolve a path against the appropriate workspace.
+
+    - Paths starting with ``shared/`` resolve against the shared workspace.
+    - When *persona_id* is given, other paths resolve against that persona's
+      private workspace.
+    - Otherwise falls back to the global WORKSPACE_ROOT.
+
+    Always sandboxed under WORKSPACE_ROOT.
+    """
+    if path.startswith("shared/") or path.startswith("shared" + os.sep):
+        base = _shared_workspace()
+        rel = path[len("shared/") :]
+        full = os.path.join(base, rel)
+    elif persona_id:
+        base = _persona_workspace(persona_id)
+        full = os.path.join(base, path)
+    else:
+        full = path
+        base = WORKSPACE_ROOT
+    return _safe_resolve(full, WORKSPACE_ROOT)
 
 
 def _safe_resolve(path: str, base: str | None = None) -> str:
@@ -21,14 +55,15 @@ def _safe_resolve(path: str, base: str | None = None) -> str:
 
 
 @tool
-def read_file(path: str) -> str:
+def read_file(path: str, persona_id: str = "") -> str:
     """Read the contents of a file.
 
     Args:
         path: Path to the file to read
+        persona_id: Your persona ID (injected by the system)
     """
     try:
-        safe = _safe_resolve(path)
+        safe = _resolve_workspace_path(path, persona_id)
     except ValueError as e:
         return f"Error: {e}"
     if not os.path.isfile(safe):
@@ -38,16 +73,19 @@ def read_file(path: str) -> str:
 
 
 @tool
-def grep_code(pattern: str, directory: str = ".", file_glob: str = "*.py") -> str:
+def grep_code(
+    pattern: str, directory: str = ".", file_glob: str = "*.py", persona_id: str = ""
+) -> str:
     """Search for a pattern in code files.
 
     Args:
         pattern: Regex pattern to search for
         directory: Directory to search in
         file_glob: File glob pattern to match (e.g. *.py, *.yaml)
+        persona_id: Your persona ID (injected by the system)
     """
     try:
-        safe_dir = _safe_resolve(directory)
+        safe_dir = _resolve_workspace_path(directory, persona_id)
     except ValueError as e:
         return f"Error: {e}"
     try:
@@ -63,15 +101,16 @@ def grep_code(pattern: str, directory: str = ".", file_glob: str = "*.py") -> st
 
 
 @tool
-def write_file(path: str, content: str) -> str:
+def write_file(path: str, content: str, persona_id: str = "") -> str:
     """Write content to a file in the workspace. Creates parent directories as needed.
 
     Args:
         path: Path to the file to write (relative to workspace root)
         content: Content to write to the file
+        persona_id: Your persona ID (injected by the system)
     """
     try:
-        safe = _safe_resolve(path)
+        safe = _resolve_workspace_path(path, persona_id)
     except ValueError as e:
         return f"Error: {e}"
     os.makedirs(os.path.dirname(safe), exist_ok=True)
@@ -81,17 +120,18 @@ def write_file(path: str, content: str) -> str:
 
 
 @tool
-def list_files(directory: str = ".", pattern: str = "") -> str:
+def list_files(directory: str = ".", pattern: str = "", persona_id: str = "") -> str:
     """List files in a directory.
 
     Args:
         directory: Directory to list
         pattern: Optional glob pattern to filter files
+        persona_id: Your persona ID (injected by the system)
     """
     import glob as glob_mod
 
     try:
-        safe_dir = _safe_resolve(directory)
+        safe_dir = _resolve_workspace_path(directory, persona_id)
     except ValueError as e:
         return f"Error: {e}"
     if pattern:
@@ -99,3 +139,28 @@ def list_files(directory: str = ".", pattern: str = "") -> str:
     else:
         files = os.listdir(safe_dir)
     return "\n".join(sorted(files)[:100])
+
+
+@tool
+def publish_file(source_path: str, persona_id: str = "") -> str:
+    """Copy a file from your private workspace to the shared workspace.
+
+    Args:
+        source_path: Path in your private workspace to publish
+        persona_id: Your persona ID (injected by the system)
+    """
+    if not persona_id:
+        return "Error: persona_id is required to publish files"
+    private = _persona_workspace(persona_id)
+    src = os.path.join(private, source_path)
+    try:
+        src = _safe_resolve(src, WORKSPACE_ROOT)
+    except ValueError as e:
+        return f"Error: {e}"
+    if not os.path.isfile(src):
+        return f"Error: {source_path} not found in your workspace"
+    shared = _shared_workspace()
+    os.makedirs(shared, exist_ok=True)
+    dest = os.path.join(shared, os.path.basename(source_path))
+    shutil.copy2(src, dest)
+    return f"Published {source_path} to shared/{os.path.basename(source_path)}"

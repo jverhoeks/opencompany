@@ -33,8 +33,10 @@ async def _hire_persona(
             f"Error: invalid persona_id {persona_id!r} (alphanumeric, hyphens, underscores only)"
         )
 
-    # Auto-fill picks_up and tools from role config when not provided
+    # Auto-fill picks_up, tools, model_id, budget from role config when not provided
     role_id = role.lower().replace(" ", "-")
+    model_id = None
+    daily_token_budget = 0
     try:
         from opencompany.company.config import load_company_config
 
@@ -44,6 +46,8 @@ async def _hire_persona(
             picks_up = role_config.get("tag_match", [])
         if not tools:
             tools = role_config.get("tools", [])
+        model_id = role_config.get("model")
+        daily_token_budget = role_config.get("daily_token_budget", 0)
     except Exception:
         logger.debug("Could not load role config for %s, using provided values", role_id)
 
@@ -63,6 +67,8 @@ async def _hire_persona(
             reports_to=reports_to,
             tools=tools or [],
             picks_up=picks_up or [],
+            model_id=model_id,
+            daily_token_budget=daily_token_budget,
         )
         session.add(persona)
         await session.commit()

@@ -96,6 +96,9 @@ async def _get_overview_data(session: AsyncSession) -> dict:
                 "created": created_counts.get(p.id, 0),
                 "done": done_counts.get(p.id, 0),
                 "actions": action_counts.get(p.id, 0),
+                "model_id": p.model_id,
+                "daily_token_budget": p.daily_token_budget or 0,
+                "tokens_used_today": p.tokens_used_today or 0,
             }
             for p in personas
         ],
@@ -140,7 +143,7 @@ async def dashboard_overview(session: AsyncSession = Depends(get_session)):
     return await _get_overview_data(session)
 
 
-@router.get("/workspace/{file_path:path}")
+@router.get("/workspace/{file_path:path}", dependencies=[Depends(verify_api_key)])
 async def serve_workspace_file(file_path: str):
     """Serve files from the workspace (team deliverables)."""
     full = (WORKSPACE_DIR / file_path).resolve()
@@ -152,7 +155,7 @@ async def serve_workspace_file(file_path: str):
     return FileResponse(full, media_type=media_type)
 
 
-@router.get("/api/dashboard/stream")
+@router.get("/api/dashboard/stream", dependencies=[Depends(verify_api_key)])
 async def dashboard_stream(session: AsyncSession = Depends(get_session)):
     async def event_generator():
         while True:
@@ -166,7 +169,7 @@ async def dashboard_stream(session: AsyncSession = Depends(get_session)):
 # --- Overseer endpoints ---
 
 
-@router.get("/api/overseer/messages")
+@router.get("/api/overseer/messages", dependencies=[Depends(verify_api_key)])
 async def overseer_list_messages():
     """List overseer messages."""
     from opencompany.company.overseer import list_messages
@@ -178,7 +181,7 @@ class OverseerReply(BaseModel):
     reply: str
 
 
-@router.post("/api/overseer/messages/{message_id}/reply")
+@router.post("/api/overseer/messages/{message_id}/reply", dependencies=[Depends(verify_api_key)])
 async def overseer_reply(message_id: int, body: OverseerReply):
     """Reply to an overseer message and trigger the persona to process the response."""
     from opencompany.company.overseer import reply_to_message

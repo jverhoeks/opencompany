@@ -22,6 +22,12 @@ class Persona(Base):
     picks_up: Mapped[list] = mapped_column(JSONB, default_factory=list)
     tools: Mapped[list] = mapped_column(JSONB, default_factory=list)
     model_id: Mapped[str | None] = mapped_column(default=None)
+    daily_token_budget: Mapped[int] = mapped_column(default=0)
+    tokens_used_today: Mapped[int] = mapped_column(default=0)
+    budget_reset_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        default=None,
+    )
     backstory: Mapped[str] = mapped_column(default="")
     status: Mapped[str] = mapped_column(default="active", index=True)  # active | fired
     activity_state: Mapped[str] = mapped_column(default="idle")  # idle | working | blocked

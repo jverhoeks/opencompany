@@ -1106,3 +1106,531 @@ async def test_sweep_routes_orphaned_tickets(db_engine):
         updated = await session.get(Ticket, ticket_id)
         assert updated.assigned_to == "dev1"
         assert updated.status == "assigned"
+
+
+# ===========================================================================
+# Auth enforcement
+# ===========================================================================
+
+
+@pytest.fixture
+async def auth_client(db_engine, monkeypatch):
+    """Client with API_KEY set — all endpoints require bearer auth."""
+    monkeypatch.setenv("API_KEY", "test-secret-key")
+
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async def _override_get_session():
+        async with factory() as session:
+            yield session
+
+    app = FastAPI()
+    app.include_router(router, prefix="/api")
+    app.dependency_overrides[get_session] = _override_get_session
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        yield c
+
+
+async def test_api_rejects_without_key(auth_client: AsyncClient):
+    """Requests without a bearer token get 401 when API_KEY is set."""
+    endpoints = [
+        ("GET", "/api/personas"),
+        ("GET", "/api/tickets"),
+        ("POST", "/api/tickets"),
+        ("POST", "/api/chat"),
+        ("PATCH", "/api/tickets/1"),
+    ]
+    for method, path in endpoints:
+        resp = await auth_client.request(method, path)
+        assert resp.status_code == 401, (
+            f"{method} {path} should return 401, got {resp.status_code}"
+        )
+
+
+async def test_api_rejects_wrong_key(auth_client: AsyncClient):
+    """Requests with an incorrect bearer token get 401."""
+    resp = await auth_client.get(
+        "/api/personas",
+        headers={"Authorization": "Bearer wrong-key"},
+    )
+    assert resp.status_code == 401
+
+
+async def test_api_accepts_correct_key(auth_client: AsyncClient):
+    """Requests with the correct bearer token succeed."""
+    resp = await auth_client.get(
+        "/api/personas",
+        headers={"Authorization": "Bearer test-secret-key"},
+    )
+    assert resp.status_code == 200
+
+
+# ===========================================================================
+# Dashboard auth enforcement
+# ===========================================================================
+
+
+@pytest.fixture
+async def dashboard_client(db_engine, monkeypatch):
+    """Client with both API and dashboard routers, API_KEY set."""
+    from opencompany.gateway.dashboard import router as dashboard_router
+
+    monkeypatch.setenv("API_KEY", "test-secret-key")
+
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async def _override_get_session():
+        async with factory() as session:
+            yield session
+
+    app = FastAPI()
+    app.include_router(router, prefix="/api")
+    app.include_router(dashboard_router)
+
+    app.dependency_overrides[get_session] = _override_get_session
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        yield c
+
+
+async def test_dashboard_stream_requires_auth(dashboard_client: AsyncClient):
+    """GET /api/dashboard/stream returns 401 when no bearer token is provided."""
+    resp = await dashboard_client.get("/api/dashboard/stream")
+    assert resp.status_code == 401
+
+
+async def test_dashboard_overview_requires_auth(dashboard_client: AsyncClient):
+    """GET /api/dashboard/overview returns 401 when no bearer token is provided."""
+    resp = await dashboard_client.get("/api/dashboard/overview")
+    assert resp.status_code == 401
+
+
+async def test_overseer_messages_requires_auth(dashboard_client: AsyncClient):
+    """GET /api/overseer/messages returns 401 when no bearer token is provided."""
+    resp = await dashboard_client.get("/api/overseer/messages")
+    assert resp.status_code == 401
+
+
+async def test_overseer_reply_requires_auth(dashboard_client: AsyncClient):
+    """POST /api/overseer/messages/1/reply returns 401 when no bearer token is provided."""
+    resp = await dashboard_client.post(
+        "/api/overseer/messages/1/reply",
+        json={"reply": "test reply"},
+    )
+    assert resp.status_code == 401
+
+
+# ===========================================================================
+# Budget system
+# ===========================================================================
+
+
+async def test_budget_check_unlimited(db_engine):
+    """Persona with budget=0 always has budget (unlimited)."""
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async with factory() as session:
+        session.add(
+            Persona(
+                id="dev-free",
+                name="Free Dev",
+                role="Dev",
+                type="solver",
+                backstory="Unlimited budget.",
+                daily_token_budget=0,
+            )
+        )
+        await session.commit()
+
+    with patch("opencompany.company.budget.async_session", factory):
+        from opencompany.company.budget import check_budget
+
+        has_budget, remaining = await check_budget("dev-free")
+        assert has_budget is True
+        assert remaining == 0  # unlimited
+
+
+async def test_budget_check_and_consume(db_engine):
+    """Budget decreases as tokens are consumed, blocks when exceeded."""
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async with factory() as session:
+        session.add(
+            Persona(
+                id="dev-budget",
+                name="Budget Dev",
+                role="Dev",
+                type="solver",
+                backstory="Limited budget.",
+                daily_token_budget=1000,
+            )
+        )
+        await session.commit()
+
+    with patch("opencompany.company.budget.async_session", factory):
+        from opencompany.company.budget import check_budget, consume_tokens
+
+        has_budget, remaining = await check_budget("dev-budget")
+        assert has_budget is True
+        assert remaining == 1000
+
+        await consume_tokens("dev-budget", 400, 200)
+
+        has_budget, remaining = await check_budget("dev-budget")
+        assert has_budget is True
+        assert remaining == 400
+
+        # Consume the rest
+        await consume_tokens("dev-budget", 300, 200)
+
+        has_budget, remaining = await check_budget("dev-budget")
+        assert has_budget is False
+        assert remaining == 0
+
+
+async def test_budget_reset(db_engine):
+    """Resetting budget clears tokens_used_today."""
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async with factory() as session:
+        session.add(
+            Persona(
+                id="dev-reset",
+                name="Reset Dev",
+                role="Dev",
+                type="solver",
+                backstory="Will be reset.",
+                daily_token_budget=500,
+            )
+        )
+        await session.commit()
+
+    with patch("opencompany.company.budget.async_session", factory):
+        from opencompany.company.budget import check_budget, consume_tokens, reset_budget
+
+        await consume_tokens("dev-reset", 300, 300)
+        has_budget, _ = await check_budget("dev-reset")
+        assert has_budget is False
+
+        found = await reset_budget("dev-reset")
+        assert found is True
+
+        has_budget, remaining = await check_budget("dev-reset")
+        assert has_budget is True
+        assert remaining == 500
+
+
+async def test_budget_status(db_engine):
+    """get_budget_status returns correct fields."""
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async with factory() as session:
+        session.add(
+            Persona(
+                id="dev-status",
+                name="Status Dev",
+                role="Dev",
+                type="solver",
+                backstory="Check status.",
+                daily_token_budget=10000,
+                model_id="anthropic/claude-haiku-4-5-20251001",
+            )
+        )
+        await session.commit()
+
+    with patch("opencompany.company.budget.async_session", factory):
+        from opencompany.company.budget import get_budget_status
+
+        status = await get_budget_status("dev-status")
+        assert status is not None
+        assert status["persona_id"] == "dev-status"
+        assert status["daily_token_budget"] == 10000
+        assert status["tokens_used_today"] == 0
+        assert status["remaining"] == 10000
+        assert status["usage_pct"] == 0.0
+        assert status["model_id"] == "anthropic/claude-haiku-4-5-20251001"
+
+
+async def test_budget_api_list(db_engine):
+    """GET /api/budget returns budget statuses for all active personas."""
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async with factory() as session:
+        session.add(
+            Persona(
+                id="ceo-b",
+                name="CEO",
+                role="CEO",
+                type="manager",
+                backstory="CEO",
+                daily_token_budget=100000,
+            )
+        )
+        session.add(
+            Persona(
+                id="dev-b",
+                name="Dev",
+                role="Dev",
+                type="solver",
+                backstory="Dev",
+                daily_token_budget=200000,
+            )
+        )
+        await session.commit()
+
+    async def _override_get_session():
+        async with factory() as session:
+            yield session
+
+    app = FastAPI()
+    app.include_router(router, prefix="/api")
+    app.dependency_overrides[get_session] = _override_get_session
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        with patch("opencompany.company.budget.async_session", factory):
+            resp = await c.get("/api/budget")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert len(data) == 2
+            ids = {b["persona_id"] for b in data}
+            assert ids == {"ceo-b", "dev-b"}
+
+
+async def test_budget_api_reset(db_engine):
+    """POST /api/budget/{id}/reset resets a persona's budget."""
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async with factory() as session:
+        session.add(
+            Persona(
+                id="dev-r",
+                name="Dev",
+                role="Dev",
+                type="solver",
+                backstory="Dev",
+                daily_token_budget=1000,
+                tokens_used_today=999,
+            )
+        )
+        await session.commit()
+
+    async def _override_get_session():
+        async with factory() as session:
+            yield session
+
+    app = FastAPI()
+    app.include_router(router, prefix="/api")
+    app.dependency_overrides[get_session] = _override_get_session
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        with patch("opencompany.company.budget.async_session", factory):
+            resp = await c.post("/api/budget/dev-r/reset")
+            assert resp.status_code == 200
+            assert resp.json()["status"] == "ok"
+
+            # Verify it was reset
+            resp = await c.get("/api/budget/dev-r")
+            assert resp.status_code == 200
+            assert resp.json()["tokens_used_today"] == 0
+
+
+# ===========================================================================
+# Model ID in seed
+# ===========================================================================
+
+
+async def test_seed_populates_model_id(db_engine, tmp_path):
+    """Seed populates model_id and daily_token_budget from role config."""
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    config_file = tmp_path / "company.yaml"
+    config_file.write_text(
+        """
+roles:
+  ceo:
+    builtin: true
+    type: manager
+    model: anthropic/claude-sonnet-4-5-20250929
+    daily_token_budget: 100000
+    tools: [create_ticket]
+personas:
+  ceo:
+    role: ceo
+    name: Test CEO
+    backstory: A visionary.
+"""
+    )
+
+    with patch("opencompany.company.seed.async_session", factory):
+        from opencompany.company.seed import seed_company
+
+        await seed_company(str(config_file))
+
+    async with factory() as session:
+        ceo = await session.get(Persona, "ceo")
+        assert ceo is not None
+        assert ceo.model_id == "anthropic/claude-sonnet-4-5-20250929"
+        assert ceo.daily_token_budget == 100000
+
+
+# ===========================================================================
+# Budget enforcement in engine
+# ===========================================================================
+
+
+async def test_engine_budget_blocks_over_budget_persona(db_engine):
+    """Persona over budget gets blocked state, task is skipped."""
+    from datetime import UTC, datetime
+
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async with factory() as session:
+        session.add(
+            Persona(
+                id="over-budget",
+                name="Over Budget",
+                role="Dev",
+                type="solver",
+                backstory="Over budget dev.",
+                daily_token_budget=100,
+                tokens_used_today=200,
+                budget_reset_at=datetime.now(UTC),
+            )
+        )
+        ticket = Ticket(
+            title="Test task",
+            tags=["backend"],
+            created_by="test",
+        )
+        session.add(ticket)
+        await session.commit()
+        await session.refresh(ticket)
+
+    with (
+        patch("opencompany.company.engine.async_session", factory),
+        patch("opencompany.company.engine.run_persona", new_callable=AsyncMock) as mock_run,
+        patch("opencompany.company.budget.async_session", factory),
+    ):
+        from opencompany.company.engine import _spawn_persona_task
+
+        # Get the persona object
+        async with factory() as session:
+            persona = await session.get(Persona, "over-budget")
+
+        _spawn_persona_task(persona, "Do the work", "test-budget-block")
+
+        # Wait for the background task to complete
+        import asyncio
+
+        await asyncio.sleep(0.5)
+
+        # run_persona should NOT have been called (budget blocked)
+        mock_run.assert_not_called()
+
+    # Persona should be in blocked state
+    async with factory() as session:
+        persona = await session.get(Persona, "over-budget")
+        assert persona.activity_state == "blocked"
+
+
+# ===========================================================================
+# Heartbeat
+# ===========================================================================
+
+
+async def test_heartbeat_triggers_idle_personas(db_engine):
+    """Heartbeat job spawns tasks for idle personas with budget."""
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async with factory() as session:
+        session.add(
+            Persona(
+                id="idle-dev",
+                name="Idle Dev",
+                role="Dev",
+                type="solver",
+                backstory="Idle dev.",
+                activity_state="idle",
+                daily_token_budget=100000,
+            )
+        )
+        await session.commit()
+
+    with (
+        patch("opencompany.models.engine.async_session", factory),
+        patch("opencompany.company.budget.async_session", factory),
+        patch("opencompany.company.engine._spawn_persona_task") as mock_spawn,
+    ):
+        from opencompany.company.scheduler import _persona_heartbeat_job
+
+        await _persona_heartbeat_job()
+
+    mock_spawn.assert_called_once()
+    call_args = mock_spawn.call_args
+    assert call_args[0][0].id == "idle-dev"
+    assert "heartbeat-idle-dev" in call_args[0][2]
+
+
+async def test_heartbeat_skips_busy_personas(db_engine):
+    """Heartbeat skips personas in 'working' state."""
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async with factory() as session:
+        session.add(
+            Persona(
+                id="busy-dev",
+                name="Busy Dev",
+                role="Dev",
+                type="solver",
+                backstory="Working.",
+                activity_state="working",
+                daily_token_budget=100000,
+            )
+        )
+        await session.commit()
+
+    with (
+        patch("opencompany.models.engine.async_session", factory),
+        patch("opencompany.company.budget.async_session", factory),
+        patch("opencompany.company.engine._spawn_persona_task") as mock_spawn,
+    ):
+        from opencompany.company.scheduler import _persona_heartbeat_job
+
+        await _persona_heartbeat_job()
+
+    mock_spawn.assert_not_called()
+
+
+async def test_heartbeat_skips_over_budget(db_engine):
+    """Heartbeat skips personas who are over budget."""
+    from datetime import UTC, datetime
+
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async with factory() as session:
+        session.add(
+            Persona(
+                id="broke-dev",
+                name="Broke Dev",
+                role="Dev",
+                type="solver",
+                backstory="Over budget.",
+                activity_state="idle",
+                daily_token_budget=100,
+                tokens_used_today=200,
+                budget_reset_at=datetime.now(UTC),
+            )
+        )
+        await session.commit()
+
+    with (
+        patch("opencompany.models.engine.async_session", factory),
+        patch("opencompany.company.budget.async_session", factory),
+        patch("opencompany.company.engine._spawn_persona_task") as mock_spawn,
+    ):
+        from opencompany.company.scheduler import _persona_heartbeat_job
+
+        await _persona_heartbeat_job()
+
+    mock_spawn.assert_not_called()

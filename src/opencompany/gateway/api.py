@@ -47,7 +47,7 @@ class PersonaOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-@router.get("/personas", response_model=list[PersonaOut])
+@router.get("/personas", response_model=list[PersonaOut], dependencies=[Depends(verify_api_key)])
 async def api_list_personas(
     skip: int = 0,
     limit: int = 50,
@@ -59,7 +59,11 @@ async def api_list_personas(
     return result.scalars().all()
 
 
-@router.get("/personas/{persona_id}", response_model=PersonaOut)
+@router.get(
+    "/personas/{persona_id}",
+    response_model=PersonaOut,
+    dependencies=[Depends(verify_api_key)],
+)
 async def api_get_persona(persona_id: str, session: AsyncSession = Depends(get_session)):
     persona = await session.get(Persona, persona_id)
     if not persona:
@@ -91,7 +95,7 @@ class TicketCreate(BaseModel):
     context: dict = {}
 
 
-@router.get("/tickets", response_model=list[TicketOut])
+@router.get("/tickets", response_model=list[TicketOut], dependencies=[Depends(verify_api_key)])
 async def api_list_tickets(
     status: Literal["open", "in_progress", "resolved", "closed"] = "open",
     session: AsyncSession = Depends(get_session),
@@ -125,7 +129,11 @@ class TicketPatch(BaseModel):
     status: str | None = None
 
 
-@router.patch("/tickets/{ticket_id}", response_model=TicketOut)
+@router.patch(
+    "/tickets/{ticket_id}",
+    response_model=TicketOut,
+    dependencies=[Depends(verify_api_key)],
+)
 async def api_patch_ticket(
     ticket_id: int,
     body: TicketPatch,
@@ -172,3 +180,41 @@ async def api_chat(body: ChatRequest, session: AsyncSession = Depends(get_sessio
     result = await run_persona(persona, wrapped_message)
     text = result.text if hasattr(result, "text") else str(result)
     return ChatResponse(response=text)
+
+
+# --- Budget endpoints ---
+
+
+@router.get("/budget", dependencies=[Depends(verify_api_key)])
+async def api_list_budgets():
+    from opencompany.company.budget import get_all_budget_statuses
+
+    return await get_all_budget_statuses()
+
+
+@router.get("/budget/{persona_id}", dependencies=[Depends(verify_api_key)])
+async def api_get_budget(persona_id: str):
+    from opencompany.company.budget import get_budget_status
+
+    status = await get_budget_status(persona_id)
+    if not status:
+        raise HTTPException(status_code=404, detail="Persona not found")
+    return status
+
+
+@router.post("/budget/{persona_id}/reset", dependencies=[Depends(verify_api_key)])
+async def api_reset_budget(persona_id: str):
+    from opencompany.company.budget import reset_budget
+
+    found = await reset_budget(persona_id)
+    if not found:
+        raise HTTPException(status_code=404, detail="Persona not found")
+    return {"status": "ok", "persona_id": persona_id}
+
+
+@router.post("/budget/reset-all", dependencies=[Depends(verify_api_key)])
+async def api_reset_all_budgets():
+    from opencompany.company.budget import reset_all_budgets
+
+    count = await reset_all_budgets()
+    return {"status": "ok", "reset_count": count}
