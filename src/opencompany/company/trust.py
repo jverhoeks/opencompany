@@ -22,6 +22,7 @@ TOOL_TIER_REQUIREMENTS: dict[str, str] = {
     # Solver tier+
     "write_file": "solver",
     "update_ticket": "solver",
+    "web_fetch": "solver",
     # Everything else (read_file, list_files, grep_code, list_tickets,
     # list_team, web_search, remember, recall) is accessible at external tier.
 }

@@ -100,5 +100,17 @@ def test_lead_tier_access():
     assert "hire_persona" in denied
 
 
+def test_web_fetch_requires_solver_tier():
+    """web_fetch is denied for external tier."""
+    tools = ["web_fetch", "read_file"]
+    allowed, denied = filter_tools_by_tier(tools, "external")
+    assert "web_fetch" in denied
+    assert "read_file" in allowed
+
+    # Solver can use it
+    allowed, denied = filter_tools_by_tier(tools, "solver")
+    assert "web_fetch" in allowed
+
+
 def test_tier_levels_ordered():
     assert TIERS["external"] < TIERS["solver"] < TIERS["lead"] < TIERS["full"]

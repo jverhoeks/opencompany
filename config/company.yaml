@@ -135,6 +135,7 @@ roles:
     - list_files
     - grep_code
     - send_message
+    - web_fetch
     routes_to: solver
   marketing-lead:
     type: lead
@@ -168,6 +169,7 @@ roles:
     - list_tickets
     - update_ticket
     - send_message
+    - web_fetch
     routes_to: solver
   backend-dev:
     type: solver
@@ -201,6 +203,7 @@ roles:
     - update_ticket
     - send_message
     - contact_overseer
+    - web_fetch
   frontend-dev:
     type: solver
     model: anthropic/claude-haiku-4-5-20251001
@@ -234,6 +237,7 @@ roles:
     - update_ticket
     - send_message
     - contact_overseer
+    - web_fetch
   content-writer:
     type: solver
     model: anthropic/claude-haiku-4-5-20251001
@@ -266,6 +270,7 @@ roles:
     - send_message
     - contact_overseer
     - web_search
+    - web_fetch
   developer:
     type: solver
     model: anthropic/claude-haiku-4-5-20251001
@@ -294,6 +299,7 @@ roles:
     - update_ticket
     - send_message
     - contact_overseer
+    - web_fetch
 personas:
   ceo:
     role: ceo

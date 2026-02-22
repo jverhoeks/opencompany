@@ -4,7 +4,7 @@ from opencompany.agents.tools.memory import recall, remember
 from opencompany.agents.tools.messaging import send_message
 from opencompany.agents.tools.overseer import contact_overseer
 from opencompany.agents.tools.tickets import create_ticket, list_tickets, update_ticket
-from opencompany.agents.tools.web import web_search
+from opencompany.agents.tools.web import web_fetch, web_search
 
 ALL_TOOLS = {
     "create_ticket": create_ticket,
@@ -21,6 +21,7 @@ ALL_TOOLS = {
     "contact_overseer": contact_overseer,
     "send_message": send_message,
     "web_search": web_search,
+    "web_fetch": web_fetch,
     "remember": remember,
     "recall": recall,
 }
