@@ -24,6 +24,7 @@ roles:
     type: manager
     model: azure/gpt-5-mini
     daily_token_budget: 100000
+    max_headcount: 1
     responsibilities: "Set strategic direction. Create high-level goals as tickets.\n\
       Tag tickets to hint at department: product, marketing, hr.\nDecide what roles\
       \ and people the company needs \u2014 YOU make hiring\ndecisions. Create HR-tagged\
@@ -61,6 +62,7 @@ roles:
     type: manager
     model: azure/gpt-5-mini
     daily_token_budget: 150000
+    max_headcount: 1
     responsibilities: 'Handle hiring and firing. Evaluate skill gaps.
 
       When hiring, pick the right role from the catalog.
@@ -100,6 +102,7 @@ roles:
     type: manager
     model: azure/gpt-5-mini
     daily_token_budget: 150000
+    max_headcount: 1
     responsibilities: "Break CEO goals into department-specific sub-tickets.\nRoute\
       \ via tags: backend, frontend, architecture \u2192 tech-lead.\nmarketing, content,\
       \ sales-page \u2192 marketing-lead.\n"

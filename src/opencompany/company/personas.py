@@ -5,7 +5,7 @@ import os
 import re
 
 import yaml
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from opencompany.models.db import Persona, Ticket
 from opencompany.models.engine import async_session
@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 _VALID_PERSONA_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
+_DEFAULT_MAX_HEADCOUNT = 2  # max active personas per role unless overridden
 
 
 async def _hire_persona(
@@ -37,6 +38,7 @@ async def _hire_persona(
     role_id = role.lower().replace(" ", "-")
     model_id = None
     daily_token_budget = 0
+    max_headcount = _DEFAULT_MAX_HEADCOUNT
     try:
         from opencompany.company.config import load_company_config
 
@@ -48,6 +50,7 @@ async def _hire_persona(
             tools = role_config.get("tools", [])
         model_id = role_config.get("model")
         daily_token_budget = role_config.get("daily_token_budget", 0)
+        max_headcount = role_config.get("max_headcount", _DEFAULT_MAX_HEADCOUNT)
     except Exception:
         logger.debug("Could not load role config for %s, using provided values", role_id)
 
@@ -56,6 +59,27 @@ async def _hire_persona(
         if existing:
             logger.warning("Hire rejected: persona %r already exists", persona_id)
             return f"Error: persona '{persona_id}' already exists"
+
+        # Headcount guard: reject if too many active personas in same role
+        result = await session.execute(
+            select(func.count(Persona.id)).where(
+                Persona.role == role_id,
+                Persona.status == "active",
+            )
+        )
+        current_count = result.scalar() or 0
+        if current_count >= max_headcount:
+            logger.warning(
+                "Hire rejected: role %r already has %d/%d active personas",
+                role_id,
+                current_count,
+                max_headcount,
+            )
+            return (
+                f"Error: role '{role}' already has {current_count} active "
+                f"persona(s) (max {max_headcount}). Fire someone first or "
+                f"increase max_headcount in the role config."
+            )
 
         persona = Persona(
             id=persona_id,

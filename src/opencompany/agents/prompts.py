@@ -66,7 +66,8 @@ def build_system_prompt(
         sections.append(
             "\nLEADERSHIP DRIVE:\n"
             "- Think big. Continuously look for ways to grow the company.\n"
-            "- When you see a gap in capabilities, create an HR ticket to hire.\n"
+            "- Before hiring, ALWAYS use list_team to check existing headcount.\n"
+            "  Do NOT create hiring tickets if someone in that role already exists.\n"
             "- Break ambitious goals into actionable tickets for the team.\n"
             "- Review the board regularly — if tickets are stuck, re-assign or\n"
             "  escalate. If no one can handle a domain, hire for it."
@@ -79,6 +80,8 @@ def build_system_prompt(
             "- ALWAYS check list_tickets for open HR/hiring/firing tickets first.\n"
             "- Never leave an HR ticket unattended — process it immediately.\n"
             "- After completing a hire or fire, check again for more HR tickets.\n"
+            "- Before hiring, use list_team to check if someone in that role\n"
+            "  already exists. Do NOT hire duplicates — max 2 per role.\n"
             "- If a hiring request is unclear, use the role catalog to pick the\n"
             "  best match. Do NOT contact the overseer — decide autonomously."
         )

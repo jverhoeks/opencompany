@@ -49,6 +49,39 @@ async def _wait_for_db(retries: int = 20, delay: float = 1.0):
             await asyncio.sleep(delay)
 
 
+async def _ceo_greet_overseer():
+    """On startup, CEO sends a welcome message to the overseer (customer)."""
+    try:
+        from opencompany.company.budget import check_budget
+        from opencompany.company.engine import _spawn_persona_task
+        from opencompany.models.db import Persona
+        from opencompany.models.engine import async_session
+
+        async with async_session() as session:
+            ceo = await session.get(Persona, "ceo")
+            if not ceo or ceo.status != "active":
+                logger.info("CEO greeting skipped: CEO not active")
+                return
+
+        has_budget, _ = await check_budget("ceo")
+        if not has_budget:
+            logger.info("CEO greeting skipped: CEO over budget")
+            return
+
+        _spawn_persona_task(
+            ceo,
+            "The company just started up. Greet the customer (overseer) via "
+            "contact_overseer with a warm, professional welcome. Introduce "
+            "yourself briefly and let them know you and the team are ready to "
+            "help. Ask what they'd like the company to work on today. "
+            "Keep it friendly and concise — one short paragraph.",
+            "ceo-greeting",
+        )
+        logger.info("CEO greeting task spawned")
+    except Exception:
+        logger.exception("CEO greeting failed (non-fatal)")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Store the main event loop for sync-to-async bridging in tool threads
@@ -87,6 +120,9 @@ async def lifespan(app: FastAPI):
         lambda t: logger.error("Event listener died: %s", t.exception()) if t.exception() else None
     )
     logger.info("Event listener started")
+
+    # CEO welcome: greet the overseer on startup
+    await _ceo_greet_overseer()
 
     # Start Telegram bot
     telegram_app = create_telegram_app()
