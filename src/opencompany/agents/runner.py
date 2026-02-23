@@ -25,13 +25,24 @@ def register_tool(name: str, func):
 
 
 def get_model(model_id: str | None = None) -> LiteLLMModel:
+    resolved = model_id
+    if not resolved:
+        try:
+            from opencompany.company.config import load_company_config
+
+            resolved = load_company_config().default_model or None
+        except Exception:
+            pass
+    if not resolved:
+        resolved = os.environ.get("LITELLM_MODEL_ID") or "azure/gpt-5"
+    logger.debug("Model resolved: requested=%s → using=%s", model_id, resolved)
     return LiteLLMModel(
         client_args={
             "api_key": os.environ.get("OPENAI_API_KEY", ""),
             "api_base": os.environ.get("OPENAI_API_BASE", ""),
             "use_litellm_proxy": True,
         },
-        model_id=model_id or os.environ.get("LITELLM_MODEL_ID", "azure/gpt-5"),
+        model_id=resolved,
     )
 
 
@@ -42,13 +53,18 @@ def create_agent(
 ) -> Agent:
     registry = tools if tools is not None else _TOOL_REGISTRY
     resolved_tools = []
+    missing_tools = []
     for tool_name in persona.tools:
         if tool_name in registry:
             resolved_tools.append(registry[tool_name])
+        else:
+            missing_tools.append(tool_name)
 
     if extra_tools:
         resolved_tools.extend(extra_tools)
 
+    if missing_tools:
+        logger.debug("Persona %s: unresolved tools %s", persona.id, missing_tools)
     logger.info("Created agent for persona %s with %d tools", persona.id, len(resolved_tools))
     return Agent(
         model=get_model(persona.model_id),

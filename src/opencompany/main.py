@@ -25,7 +25,10 @@ from opencompany.utils import set_main_loop
 
 load_dotenv()
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO),
+    format="%(asctime)s %(levelname)-8s %(name)s  %(message)s",
+)
 logger = logging.getLogger(__name__)
 
 

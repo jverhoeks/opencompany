@@ -47,12 +47,22 @@ def find_best_solver(tags: list[str], solvers: list[dict]) -> dict | None:
     for solver in solvers:
         solver_tags = {s.lower() for s in solver["skills"]}
         score = _fuzzy_tag_score(solver_tags, ticket_tags)
+        logger.debug(
+            "Solver scoring: %s score=%.1f workload=%d (skills=%s vs tags=%s)",
+            solver["id"],
+            score,
+            solver["workload"],
+            solver["skills"],
+            tags,
+        )
         if score > 0:
             candidates.append((score, solver["workload"], solver))
 
     if candidates:
         # Sort by score (desc), then workload (asc)
         candidates.sort(key=lambda x: (-x[0], x[1]))
+        best = candidates[0]
+        logger.debug("Best solver candidate: %s (score=%.1f)", best[2]["id"], best[0])
         return candidates[0][2]
 
     # Fallback: assign to the least busy solver

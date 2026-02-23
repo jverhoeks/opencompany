@@ -18,6 +18,7 @@ class CompanyConfig:
     org_styles: dict[str, dict[str, Any]]
     roles: dict[str, dict[str, Any]]
     personas: dict[str, dict[str, Any]]
+    default_model: str = ""
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
 
@@ -49,6 +50,7 @@ def load_company_config(path: str | None = None) -> CompanyConfig:
         org_styles=raw.get("org_styles", {}),
         roles=raw.get("roles", {}),
         personas=raw.get("personas", {}) or {},
+        default_model=raw.get("default_model", ""),
         raw=raw,
     )
 

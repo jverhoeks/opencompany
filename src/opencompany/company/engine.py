@@ -70,9 +70,16 @@ async def _route_ticket(ticket_id: int):
 
         # HR-tagged tickets always go to HR
         if "hr" in ticket.tags or "hiring" in ticket.tags:
+            logger.debug("Ticket #%d has HR tag, routing directly to HR", ticket_id)
             target_id = "hr"
         else:
             target_type = _get_routing_target(creator, config, routing)
+            logger.debug(
+                "Ticket #%d: creator=%s → routing target type=%s",
+                ticket_id,
+                creator_id,
+                target_type,
+            )
 
             if target_type == "solver":
                 await _assign_to_solver(ticket, session)
@@ -177,6 +184,8 @@ def _find_lead_for_tags(tags: list[str], config) -> str | None:
                 if rt in tt or tt in rt:
                     score += 0.5
                     break
+        if score > 0:
+            logger.debug("Lead match: role=%s score=%.1f for tags=%s", role_id, score, tags)
         if score > best_score:
             best_score = score
             best_match = role_id
@@ -418,6 +427,14 @@ async def _greedy_pickup(persona: Persona) -> None:
         from opencompany.company.taskboard import _fuzzy_tag_score
 
         score = _fuzzy_tag_score({s.lower() for s in picks_up}, {t.lower() for t in ticket.tags})
+        logger.debug(
+            "Greedy pickup %s: ticket #%d score=%.1f (skills=%s, tags=%s)",
+            persona.id,
+            ticket.id,
+            score,
+            picks_up,
+            ticket.tags,
+        )
         if score > best_score:
             best_score = score
             best_ticket = ticket

@@ -34,9 +34,11 @@ async def seed_company(config_path: str = "config/company.yaml"):
     roles = config.get("roles", {})
     personas_config = config.get("personas", {})
 
+    default_model = config.get("default_model", "")
+
     # New format: personas is a dict referencing roles
     if isinstance(personas_config, dict):
-        persona_list = _build_persona_list_from_dict(personas_config, roles)
+        persona_list = _build_persona_list_from_dict(personas_config, roles, default_model)
     # Old format: personas is a list of full persona defs
     elif isinstance(personas_config, list):
         persona_list = personas_config
@@ -72,12 +74,15 @@ async def seed_company(config_path: str = "config/company.yaml"):
     logger.info("Seeded %d personas", len(persona_list))
 
 
-def _build_persona_list_from_dict(personas: dict, roles: dict) -> list[dict]:
+def _build_persona_list_from_dict(
+    personas: dict, roles: dict, default_model: str = ""
+) -> list[dict]:
     """Convert new-format personas dict to list, merging role config."""
     result = []
     for persona_id, pdata in personas.items():
         role_id = pdata.get("role", persona_id)
         role_config = roles.get(role_id, {})
+        model_id = role_config.get("model") or default_model or None
         result.append(
             {
                 "id": persona_id,
@@ -88,7 +93,7 @@ def _build_persona_list_from_dict(personas: dict, roles: dict) -> list[dict]:
                 "tools": role_config.get("tools", []),
                 "picks_up": role_config.get("tag_match", []),
                 "reports_to": pdata.get("reports_to"),
-                "model_id": role_config.get("model"),
+                "model_id": model_id,
                 "daily_token_budget": role_config.get("daily_token_budget", 0),
                 "backstory": pdata.get("backstory", ""),
             }
