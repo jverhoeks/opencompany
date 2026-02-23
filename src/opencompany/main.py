@@ -32,6 +32,25 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+async def _run_migrations():
+    """Run Alembic migrations via subprocess to avoid event-loop conflicts."""
+    import subprocess
+
+    result = await asyncio.to_thread(
+        subprocess.run,
+        ["alembic", "upgrade", "head"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if result.returncode != 0:
+        logger.error("Alembic migration failed:\n%s", result.stderr)
+        raise RuntimeError(f"Migration failed: {result.stderr}")
+    if result.stdout:
+        for line in result.stdout.strip().splitlines():
+            logger.info("alembic: %s", line)
+
+
 async def _wait_for_db(retries: int = 20, delay: float = 1.0):
     """Wait until the database is reachable."""
     from sqlalchemy import text
@@ -94,13 +113,11 @@ async def lifespan(app: FastAPI):
 
     # Wait for DB
     await _wait_for_db()
+    # Dispose pool before Alembic to avoid advisory lock contention
+    await engine.dispose()
 
     # Run Alembic migrations
-    from alembic import command
-    from alembic.config import Config
-
-    alembic_cfg = Config("alembic.ini")
-    await asyncio.to_thread(command.upgrade, alembic_cfg, "head")
+    await _run_migrations()
     logger.info("Database migrations applied")
 
     # Seed personas
