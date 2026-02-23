@@ -12,16 +12,14 @@ logger = logging.getLogger(__name__)
 
 
 async def seed_company(config_path: str = "config/company.yaml"):
-    """Load initial personas from company.yaml if DB is empty."""
+    """Load initial personas from company.yaml if DB is empty.
+
+    Builtin personas (roles with ``builtin: true``) are always ensured to
+    exist and be active, even when the DB already contains other personas.
+    """
     if not os.path.isfile(config_path):
         logger.warning("No config at %s, skipping seed", config_path)
         return
-
-    async with async_session() as session:
-        result = await session.execute(select(Persona).limit(1))
-        if result.scalars().first():
-            logger.info("Personas already exist, skipping seed")
-            return
 
     with open(config_path) as f:
         try:
@@ -44,6 +42,22 @@ async def seed_company(config_path: str = "config/company.yaml"):
         persona_list = personas_config
     else:
         persona_list = []
+
+    # Determine which persona IDs are builtin (role has builtin: true)
+    builtin_ids = set()
+    for p in persona_list:
+        role_id = p.get("role_id", p.get("id", ""))
+        if roles.get(role_id, {}).get("builtin"):
+            builtin_ids.add(p["id"])
+
+    async with async_session() as session:
+        result = await session.execute(select(Persona).limit(1))
+        db_has_personas = result.scalars().first() is not None
+
+    if db_has_personas:
+        logger.info("Personas already exist, ensuring builtins are active")
+        await _ensure_builtins(persona_list, builtin_ids)
+        return
 
     async with async_session() as session:
         for p in persona_list:
@@ -74,6 +88,44 @@ async def seed_company(config_path: str = "config/company.yaml"):
     logger.info("Seeded %d personas", len(persona_list))
 
 
+async def _ensure_builtins(persona_list: list[dict], builtin_ids: set[str]) -> None:
+    """Create or reactivate builtin personas so they are always present."""
+    if not builtin_ids:
+        return
+
+    async with async_session() as session:
+        for p in persona_list:
+            pid = p.get("id", "")
+            if pid not in builtin_ids:
+                continue
+
+            existing = await session.get(Persona, pid)
+            if existing:
+                if existing.status != "active":
+                    existing.status = "active"
+                    logger.info("Reactivated builtin persona: %s", pid)
+            else:
+                persona = Persona(
+                    id=pid,
+                    name=p["name"],
+                    role=p["role"],
+                    type=p["type"],
+                    reports_to=p.get("reports_to"),
+                    skills=p.get("skills", []),
+                    watches=p.get("watches", []),
+                    picks_up=p.get("picks_up", []),
+                    tools=p.get("tools", []),
+                    model_id=p.get("model_id"),
+                    daily_token_budget=p.get("daily_token_budget", 0),
+                    backstory=p.get("backstory", ""),
+                )
+                session.add(persona)
+                os.makedirs(os.path.join("workspaces", pid), exist_ok=True)
+                logger.info("Created missing builtin persona: %s", pid)
+
+        await session.commit()
+
+
 def _build_persona_list_from_dict(
     personas: dict, roles: dict, default_model: str = ""
 ) -> list[dict]:
@@ -88,6 +140,7 @@ def _build_persona_list_from_dict(
                 "id": persona_id,
                 "name": pdata.get("name", persona_id),
                 "role": role_id.replace("-", " ").title(),
+                "role_id": role_id,
                 "type": role_config.get("type", "solver"),
                 "skills": role_config.get("tag_match", []),
                 "tools": role_config.get("tools", []),
