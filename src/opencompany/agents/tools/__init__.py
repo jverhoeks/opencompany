@@ -3,6 +3,7 @@ from opencompany.agents.tools.code import (
     list_files,
     publish_file,
     read_file,
+    run_script,
     write_file,
 )
 from opencompany.agents.tools.company import create_role, fire_persona, hire_persona, list_team
@@ -29,6 +30,7 @@ ALL_TOOLS = {
     "web_search": web_search,
     "web_fetch": web_fetch,
     "publish_file": publish_file,
+    "run_script": run_script,
     "remember": remember,
     "recall": recall,
 }

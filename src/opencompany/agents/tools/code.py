@@ -170,3 +170,71 @@ def publish_file(source_path: str, persona_id: str = "") -> str:
     dest_name = os.path.basename(source_path)
     logger.info("[%s] publish_file: %s → shared/%s", persona_id, source_path, dest_name)
     return f"Published {source_path} to shared/{os.path.basename(source_path)}"
+
+
+# Allowed interpreters for run_script (whitelist for safety)
+_ALLOWED_INTERPRETERS = {
+    ".py": ["python3"],
+    ".sh": ["bash"],
+    ".js": ["node"],
+    ".ts": ["npx", "tsx"],
+    ".rb": ["ruby"],
+}
+
+_SCRIPT_TIMEOUT = int(os.environ.get("SCRIPT_TIMEOUT_SECONDS", "30"))
+
+
+@tool
+def run_script(path: str, args: str = "", persona_id: str = "") -> str:
+    """Run a script file from the workspace and return its output.
+
+    The script runs sandboxed inside the persona's workspace directory.
+    Supported: .py, .sh, .js, .ts, .rb. Timeout: 30s.
+
+    Args:
+        path: Path to the script file (relative to your workspace)
+        args: Optional command-line arguments for the script
+        persona_id: Your persona ID (injected by the system)
+    """
+    try:
+        safe = _resolve_workspace_path(path, persona_id)
+    except ValueError as e:
+        return f"Error: {e}"
+    if not os.path.isfile(safe):
+        return f"Error: {path} not found"
+
+    ext = os.path.splitext(safe)[1].lower()
+    interpreter = _ALLOWED_INTERPRETERS.get(ext)
+    if not interpreter:
+        exts = ", ".join(_ALLOWED_INTERPRETERS)
+        return f"Error: unsupported file type '{ext}'. Supported: {exts}"
+
+    cmd = [*interpreter, safe]
+    if args:
+        cmd.extend(args.split())
+
+    cwd = _persona_workspace(persona_id) if persona_id else WORKSPACE_ROOT
+    os.makedirs(cwd, exist_ok=True)
+
+    logger.info("[%s] run_script: %s %s", persona_id or "?", path, args)
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=_SCRIPT_TIMEOUT,
+            cwd=cwd,
+        )
+    except subprocess.TimeoutExpired:
+        return f"Error: script timed out after {_SCRIPT_TIMEOUT}s"
+    except Exception as e:
+        return f"Error running script: {e}"
+
+    output = ""
+    if result.stdout:
+        output += result.stdout[:8000]
+    if result.stderr:
+        output += f"\n--- stderr ---\n{result.stderr[:2000]}"
+    if result.returncode != 0:
+        output += f"\n[exit code: {result.returncode}]"
+    return output.strip() or "(no output)"

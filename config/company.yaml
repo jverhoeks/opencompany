@@ -176,6 +176,7 @@ roles:
     - update_ticket
     - read_file
     - write_file
+    - run_script
     - list_files
     - grep_code
     - send_message
@@ -261,6 +262,7 @@ roles:
     tools:
     - read_file
     - write_file
+    - run_script
     - list_files
     - grep_code
     - update_ticket
@@ -305,6 +307,7 @@ roles:
     tools:
     - read_file
     - write_file
+    - run_script
     - list_files
     - grep_code
     - update_ticket
@@ -387,6 +390,7 @@ roles:
     tools:
     - read_file
     - write_file
+    - run_script
     - list_files
     - grep_code
     - update_ticket
