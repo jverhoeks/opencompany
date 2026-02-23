@@ -58,7 +58,7 @@ roles:
   hr:
     builtin: true
     type: manager
-    model:azure/gpt-5-mini
+    model: azure/gpt-5-mini
     daily_token_budget: 150000
     responsibilities: 'Handle hiring and firing. Evaluate skill gaps.
 
@@ -96,7 +96,7 @@ roles:
     - create_role
   pm:
     type: manager
-    model:azure/gpt-5-mini
+    model: azure/gpt-5-mini
     daily_token_budget: 150000
     responsibilities: "Break CEO goals into department-specific sub-tickets.\nRoute\
       \ via tags: backend, frontend, architecture \u2192 tech-lead.\nmarketing, content,\
@@ -129,7 +129,7 @@ roles:
     routes_to: lead
   tech-lead:
     type: lead
-    model:azure/gpt-5-mini
+    model: azure/gpt-5-mini
     daily_token_budget: 150000
     tag_match:
     - backend
@@ -176,7 +176,7 @@ roles:
     routes_to: solver
   marketing-lead:
     type: lead
-    model:azure/gpt-5-mini
+    model: azure/gpt-5-mini
     daily_token_budget: 150000
     tag_match:
     - marketing
@@ -219,7 +219,7 @@ roles:
     routes_to: solver
   backend-dev:
     type: solver
-    model:azure/gpt-5-mini
+    model: azure/gpt-5-mini
     daily_token_budget: 200000
     tag_match:
     - backend
@@ -262,7 +262,7 @@ roles:
     - publish_file
   frontend-dev:
     type: solver
-    model:azure/gpt-5-mini
+    model: azure/gpt-5-mini
     daily_token_budget: 200000
     tag_match:
     - frontend
@@ -306,7 +306,7 @@ roles:
     - publish_file
   content-writer:
     type: solver
-    model:azure/gpt-5-mini
+    model: azure/gpt-5-mini
     daily_token_budget: 200000
     tag_match:
     - content
@@ -349,7 +349,7 @@ roles:
     - publish_file
   developer:
     type: solver
-    model:azure/gpt-5-mini
+    model: azure/gpt-5-mini
     daily_token_budget: 200000
     tag_match:
     - code
