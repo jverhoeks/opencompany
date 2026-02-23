@@ -11,8 +11,8 @@ WORKSPACE_ROOT = os.path.realpath(os.environ.get("WORKSPACE_ROOT", "workspaces")
 
 
 def _persona_workspace(persona_id: str) -> str:
-    """Return path to persona's private workspace."""
-    return os.path.join(WORKSPACE_ROOT, "private", persona_id)
+    """Return path to persona's workspace directory."""
+    return os.path.join(WORKSPACE_ROOT, persona_id)
 
 
 def _shared_workspace() -> str:

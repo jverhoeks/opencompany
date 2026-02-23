@@ -1,5 +1,7 @@
 import asyncio
 import concurrent.futures
+import copy
+import inspect
 import logging
 import os
 import re
@@ -46,6 +48,38 @@ def get_model(model_id: str | None = None) -> LiteLLMModel:
     )
 
 
+def _bind_persona_id(tool_func, persona_id: str):
+    """Return a copy of a Strands tool with persona_id pre-filled.
+
+    The LLM never sees the persona_id parameter — it's injected automatically.
+    This prevents agents from forgetting to pass their own ID.
+    """
+    inner = tool_func.__wrapped__ if hasattr(tool_func, "__wrapped__") else tool_func
+    sig = inspect.signature(inner)
+    if "persona_id" not in sig.parameters:
+        return tool_func
+
+    # Deep-copy the tool spec and remove persona_id from the schema
+    bound = copy.copy(tool_func)
+    spec = copy.deepcopy(tool_func.tool_spec)
+    props = spec.get("inputSchema", {}).get("json", {}).get("properties", {})
+    props.pop("persona_id", None)
+    req = spec.get("inputSchema", {}).get("json", {}).get("required", [])
+    if "persona_id" in req:
+        req.remove("persona_id")
+    bound._tool_spec = spec
+
+    # Wrap the underlying function to inject persona_id
+    original_func = tool_func._tool_func
+
+    def patched_func(*args, **kwargs):
+        kwargs.setdefault("persona_id", persona_id)
+        return original_func(*args, **kwargs)
+
+    bound._tool_func = patched_func
+    return bound
+
+
 def create_agent(
     persona: Persona,
     extra_tools: list | None = None,
@@ -56,7 +90,7 @@ def create_agent(
     missing_tools = []
     for tool_name in persona.tools:
         if tool_name in registry:
-            resolved_tools.append(registry[tool_name])
+            resolved_tools.append(_bind_persona_id(registry[tool_name], persona.id))
         else:
             missing_tools.append(tool_name)
 
