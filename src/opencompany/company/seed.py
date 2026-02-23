@@ -2,9 +2,9 @@ import logging
 import os
 import re
 
-import yaml
 from sqlalchemy import select
 
+from opencompany.company.config import load_company_config
 from opencompany.models.db import Persona
 from opencompany.models.engine import async_session
 
@@ -17,22 +17,20 @@ async def seed_company(config_path: str = "config/company.yaml"):
     Builtin personas (roles with ``builtin: true``) are always ensured to
     exist and be active, even when the DB already contains other personas.
     """
-    if not os.path.isfile(config_path):
+    try:
+        company_config = load_company_config(config_path)
+    except FileNotFoundError:
         logger.warning("No config at %s, skipping seed", config_path)
         return
-
-    with open(config_path) as f:
-        try:
-            config = yaml.safe_load(f)
-        except yaml.YAMLError:
-            logger.exception("Failed to parse %s", config_path)
-            return
+    except ValueError:
+        # load_company_config already logged the detailed parse error
+        return
 
     valid_id = re.compile(r"^[a-zA-Z0-9_-]+$")
-    roles = config.get("roles", {})
-    personas_config = config.get("personas", {})
+    roles = company_config.roles
+    personas_config = company_config.personas
 
-    default_model = config.get("default_model", "")
+    default_model = company_config.default_model
 
     # New format: personas is a dict referencing roles
     if isinstance(personas_config, dict):
