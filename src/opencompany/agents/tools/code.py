@@ -1,8 +1,11 @@
+import logging
 import os
 import shutil
 import subprocess
 
 from strands import tool
+
+logger = logging.getLogger(__name__)
 
 WORKSPACE_ROOT = os.path.realpath(os.environ.get("WORKSPACE_ROOT", "workspaces"))
 
@@ -116,6 +119,7 @@ def write_file(path: str, content: str, persona_id: str = "") -> str:
     os.makedirs(os.path.dirname(safe), exist_ok=True)
     with open(safe, "w") as f:
         f.write(content)
+    logger.info("[%s] write_file: %s (%d bytes)", persona_id or "?", path, len(content))
     return f"Wrote {len(content)} bytes to {path}"
 
 
@@ -163,4 +167,6 @@ def publish_file(source_path: str, persona_id: str = "") -> str:
     os.makedirs(shared, exist_ok=True)
     dest = os.path.join(shared, os.path.basename(source_path))
     shutil.copy2(src, dest)
+    dest_name = os.path.basename(source_path)
+    logger.info("[%s] publish_file: %s → shared/%s", persona_id, source_path, dest_name)
     return f"Published {source_path} to shared/{os.path.basename(source_path)}"

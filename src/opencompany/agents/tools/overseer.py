@@ -1,4 +1,8 @@
+import logging
+
 from strands import tool
+
+logger = logging.getLogger(__name__)
 
 
 @tool
@@ -15,4 +19,5 @@ def contact_overseer(message: str, persona_id: str) -> str:
     from opencompany.utils import _run_async
 
     msg_id = _run_async(store_message(persona_id=persona_id, message=message))
+    logger.info("[%s] contact_overseer: %.80s", persona_id, message)
     return f"Message #{msg_id} sent to overseer. They will reply when available."

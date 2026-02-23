@@ -70,11 +70,11 @@ async def _route_ticket(ticket_id: int):
 
         # HR-tagged tickets always go to HR
         if "hr" in ticket.tags or "hiring" in ticket.tags:
-            logger.debug("Ticket #%d has HR tag, routing directly to HR", ticket_id)
+            logger.info("Ticket #%d has HR tag, routing directly to HR", ticket_id)
             target_id = "hr"
         else:
             target_type = _get_routing_target(creator, config, routing)
-            logger.debug(
+            logger.info(
                 "Ticket #%d: creator=%s → routing target type=%s",
                 ticket_id,
                 creator_id,
