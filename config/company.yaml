@@ -56,6 +56,10 @@ roles:
     - contact_overseer
     - create_role
     - write_file
+    - write_policy
+    - approve_policy
+    - list_policies
+    - read_policy
     routes_to: pm
   hr:
     builtin: true
@@ -98,6 +102,10 @@ roles:
     - contact_overseer
     - create_role
     - write_file
+    - write_policy
+    - approve_policy
+    - list_policies
+    - read_policy
   pm:
     type: manager
     model: azure/gpt-5-mini
@@ -132,6 +140,10 @@ roles:
     - list_team
     - send_message
     - write_file
+    - write_policy
+    - approve_policy
+    - list_policies
+    - read_policy
     routes_to: lead
   tech-lead:
     type: lead
@@ -181,6 +193,10 @@ roles:
     - grep_code
     - send_message
     - web_fetch
+    - write_policy
+    - approve_policy
+    - list_policies
+    - read_policy
     routes_to: solver
   marketing-lead:
     type: lead
@@ -225,6 +241,10 @@ roles:
     - send_message
     - write_file
     - web_fetch
+    - write_policy
+    - approve_policy
+    - list_policies
+    - read_policy
     routes_to: solver
   backend-dev:
     type: solver
@@ -270,6 +290,8 @@ roles:
     - contact_overseer
     - web_fetch
     - publish_file
+    - list_policies
+    - read_policy
   frontend-dev:
     type: solver
     model: azure/gpt-5-mini
@@ -315,6 +337,8 @@ roles:
     - contact_overseer
     - web_fetch
     - publish_file
+    - list_policies
+    - read_policy
   content-writer:
     type: solver
     model: azure/gpt-5-mini
@@ -358,6 +382,8 @@ roles:
     - web_search
     - web_fetch
     - publish_file
+    - list_policies
+    - read_policy
   developer:
     type: solver
     model: azure/gpt-5-mini
@@ -398,6 +424,8 @@ roles:
     - contact_overseer
     - web_fetch
     - publish_file
+    - list_policies
+    - read_policy
   frontend-engineer:
     type: solver
     responsibilities: Build responsive, accessible single-page web applications using
@@ -682,6 +710,78 @@ roles:
     - onboarding
     - hr
     routes_to: manager
+  backend-engineer:
+    type: solver
+    responsibilities: Design, implement, and maintain backend services and APIs. Build
+      scalable, secure systems to support product features, own data models, integrations,
+      and performance optimizations.
+    constraints: Works closely with frontend engineers and SRE; not responsible for
+      customer-facing sales or strategy decisions.
+    tools:
+    - git
+    - ci/cd
+    - monitoring
+    tag_match:
+    - backend
+    - api
+    - services
+    routes_to: solver
+  growth-marketer:
+    type: solver
+    responsibilities: Develop and execute growth experiments across acquisition and
+      activation channels. Own paid acquisition, content, email funnels, analytics
+      for CAC and conversion optimization.
+    constraints: Focus on measurable, low-cost acquisition channels and cross-functional
+      work with product and design.
+    tools:
+    - analytics
+    - ads
+    - seo
+    - email
+    - crm
+    tag_match:
+    - growth
+    - marketing
+    - acquisition
+    routes_to: solver
+  product-strategy-lead:
+    type: lead
+    responsibilities: Own the 90-day product launch strategy, roadmap, feature prioritization,
+      and go-to-market coordination. Align product milestones with marketing, ops,
+      and hiring.
+    constraints: Not responsible for executing hiring or marketing tasks directly;
+      will coordinate across teams and report to CEO.
+    tools:
+    - roadmap
+    - analytics
+    - notion
+    tag_match:
+    - product
+    - go-to-market
+    - strategy
+    routes_to: lead
+  head-of-engineering:
+    type: manager
+    responsibilities: Lead and scale the engineering organization (platform, SRE,
+      backend, frontend). Define engineering strategy, technical roadmap, and architecture
+      for distributed systems and cloud infrastructure. Own delivery health, SLIs/SLOs,
+      incident management, and SRE best practices. Hire, mentor, and grow engineering
+      managers and individual contributors. Work closely with the CEO and product
+      leadership to align technical decisions with company strategy. Drive hiring
+      plans, interviewing, and onboarding processes.
+    constraints: Reports to the CEO. Max 2 hires for this role. Focus on early-stage
+      scaling and operational excellence.
+    tools:
+    - write_file
+    - update_ticket
+    - list_tickets
+    tag_match:
+    - engineering
+    - platform
+    - sre
+    - architecture
+    - hiring
+    routes_to: manager
 personas:
   ceo:
     role: ceo
@@ -840,6 +940,12 @@ personas:
       saves deliverables to the company workspace using write_file, and supports the
       HR manager with onboarding operations.
     reports_to: hr
+  evan_clarke:
+    role: product-strategy-lead
+    name: Evan Clarke
+    backstory: Seasoned product strategy lead with 8 years launching consumer SaaS
+      products. Experienced in prioritization, GTM coordination, and cross-functional
+      leadership. Previously led launches at two startups to >100k MAU.
 bindings:
 - persona_id: ceo
   match:

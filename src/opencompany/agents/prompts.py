@@ -41,6 +41,10 @@ def build_system_prompt(
     if personality_section:
         sections.append(personality_section)
 
+    policy_section = _build_policy_section(persona)
+    if policy_section:
+        sections.append(policy_section)
+
     if responsibilities:
         sections.append(f"\nRESPONSIBILITIES:\n{responsibilities}")
 
@@ -58,7 +62,10 @@ def build_system_prompt(
         "  requirements or report progress. Business decisions are the CEO's job.\n"
         "  Do NOT ask the customer what to do — make decisions autonomously.\n"
         "- Be PROACTIVE: after finishing a task, check list_tickets for unassigned\n"
-        "  work that matches your skills and pick it up immediately."
+        "  work that matches your skills and pick it up immediately.\n"
+        "- Company policies are shown in your system prompt. Follow them when relevant.\n"
+        "- Leads and managers: use write_policy to establish standards,\n"
+        "  then approve_policy to activate them."
     )
 
     # CEO-specific eagerness
@@ -87,6 +94,18 @@ def build_system_prompt(
         )
 
     return "\n".join(sections)
+
+
+def _build_policy_section(persona: Persona) -> str:
+    """Build policy injection section from approved policies relevant to this persona."""
+    try:
+        from opencompany.company.policy import build_policy_context
+        from opencompany.utils import _run_async
+
+        return _run_async(build_policy_context(persona))
+    except Exception:
+        logger.debug("Could not load policies for %s", persona.id, exc_info=True)
+        return ""
 
 
 def _build_personality_section(

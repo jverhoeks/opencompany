@@ -98,6 +98,29 @@ class WorkLog(Base):
     )
 
 
+class PolicyDocument(Base):
+    __tablename__ = "policy_documents"
+
+    id: Mapped[int] = mapped_column(primary_key=True, init=False, autoincrement=True)
+    title: Mapped[str]
+    content: Mapped[str]  # markdown body
+    author_id: Mapped[str] = mapped_column(ForeignKey("personas.id"))
+    status: Mapped[str] = mapped_column(default="draft", index=True)
+    approved_by: Mapped[str | None] = mapped_column(default=None)
+    tags: Mapped[list] = mapped_column(JSONB, default_factory=list)
+    applies_to: Mapped[list] = mapped_column(JSONB, default_factory=list)
+    version: Mapped[int] = mapped_column(default=1)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default_factory=lambda: datetime.now(UTC),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default_factory=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+
 class OverseerMessage(Base):
     __tablename__ = "overseer_messages"
 

@@ -10,6 +10,12 @@ from opencompany.agents.tools.company import create_role, fire_persona, hire_per
 from opencompany.agents.tools.memory import recall, remember
 from opencompany.agents.tools.messaging import send_message
 from opencompany.agents.tools.overseer import contact_overseer
+from opencompany.agents.tools.policy import (
+    approve_policy,
+    list_policies,
+    read_policy,
+    write_policy,
+)
 from opencompany.agents.tools.tickets import create_ticket, list_tickets, update_ticket
 from opencompany.agents.tools.web import web_fetch, web_search
 
@@ -33,4 +39,8 @@ ALL_TOOLS = {
     "run_script": run_script,
     "remember": remember,
     "recall": recall,
+    "write_policy": write_policy,
+    "approve_policy": approve_policy,
+    "list_policies": list_policies,
+    "read_policy": read_policy,
 }
