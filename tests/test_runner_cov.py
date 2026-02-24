@@ -61,7 +61,7 @@ def test_get_model_uses_env(monkeypatch):
     monkeypatch.setenv("LITELLM_MODEL_ID", "gpt-test")
 
     with (
-        patch("opencompany.agents.runner.LiteLLMModel") as MockModel,
+        patch("strands.models.litellm.LiteLLMModel") as MockModel,
         patch("opencompany.company.config.load_company_config", side_effect=FileNotFoundError),
     ):
         from opencompany.agents.runner import get_model
@@ -77,7 +77,7 @@ def test_get_model_explicit_model_id(monkeypatch):
     """get_model uses the explicit model_id over env var."""
     monkeypatch.setenv("LITELLM_MODEL_ID", "gpt-env")
 
-    with patch("opencompany.agents.runner.LiteLLMModel") as MockModel:
+    with patch("strands.models.litellm.LiteLLMModel") as MockModel:
         from opencompany.agents.runner import get_model
 
         get_model("gpt-explicit")
@@ -102,7 +102,7 @@ def test_create_agent_resolves_tools_from_registry():
 
     with (
         patch("opencompany.agents.runner.get_model"),
-        patch("opencompany.agents.runner.Agent") as MockAgent,
+        patch("strands.Agent") as MockAgent,
     ):
         create_agent(persona, tools=registry)
         call_kwargs = MockAgent.call_args[1]
@@ -118,7 +118,7 @@ def test_create_agent_skips_missing_tools():
 
     with (
         patch("opencompany.agents.runner.get_model"),
-        patch("opencompany.agents.runner.Agent") as MockAgent,
+        patch("strands.Agent") as MockAgent,
     ):
         create_agent(persona, tools=registry)
         call_kwargs = MockAgent.call_args[1]
@@ -132,7 +132,7 @@ def test_create_agent_extra_tools():
 
     with (
         patch("opencompany.agents.runner.get_model"),
-        patch("opencompany.agents.runner.Agent") as MockAgent,
+        patch("strands.Agent") as MockAgent,
     ):
         create_agent(persona, extra_tools=[extra], tools={})
         call_kwargs = MockAgent.call_args[1]
@@ -145,7 +145,7 @@ def test_create_agent_sets_name_and_description():
 
     with (
         patch("opencompany.agents.runner.get_model"),
-        patch("opencompany.agents.runner.Agent") as MockAgent,
+        patch("strands.Agent") as MockAgent,
     ):
         create_agent(persona, tools={})
         call_kwargs = MockAgent.call_args[1]

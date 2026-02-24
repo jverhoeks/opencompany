@@ -12,7 +12,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import opencompany.models.db  # noqa: F401
 from opencompany.agents.runner import register_tool
-from opencompany.agents.tools import ALL_TOOLS
 from opencompany.company.engine import start_event_listener
 from opencompany.company.scheduler import scheduler, start_scheduler
 from opencompany.company.seed import seed_company
@@ -117,6 +116,8 @@ async def lifespan(app: FastAPI):
     set_main_loop(asyncio.get_running_loop())
 
     # Register all tools
+    from opencompany.agents.tools import ALL_TOOLS
+
     for name, func in ALL_TOOLS.items():
         register_tool(name, func)
     logger.info(f"Registered {len(ALL_TOOLS)} tools")

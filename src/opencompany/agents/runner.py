@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import concurrent.futures
 import copy
@@ -5,12 +7,14 @@ import inspect
 import logging
 import os
 import re
-
-from strands import Agent
-from strands.models.litellm import LiteLLMModel
+from typing import TYPE_CHECKING
 
 from opencompany.agents.prompts import build_system_prompt
 from opencompany.models.db import Persona
+
+if TYPE_CHECKING:
+    from strands import Agent
+    from strands.models.litellm import LiteLLMModel
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +31,8 @@ def register_tool(name: str, func):
 
 
 def get_model(model_id: str | None = None) -> LiteLLMModel:
+    from strands.models.litellm import LiteLLMModel
+
     resolved = model_id
     if not resolved:
         try:
@@ -85,6 +91,8 @@ def create_agent(
     extra_tools: list | None = None,
     tools: dict | None = None,
 ) -> Agent:
+    from strands import Agent  # noqa: F811
+
     registry = tools if tools is not None else _TOOL_REGISTRY
     resolved_tools = []
     missing_tools = []
