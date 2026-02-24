@@ -24,7 +24,8 @@ CEO_KICKOFF_PROMPT = (
     "Based on what you see, take action:\n"
     "- Create new strategic tickets if the board is empty or needs direction\n"
     "- Re-prioritize or re-tag tickets that are stuck\n"
-    "- Create HR tickets to hire if you see skill gaps\n"
+    "- Create HR tickets to hire ONLY if there is a genuine skill gap AND no one "
+    "in that role already. Use list_team first to check existing headcount.\n"
     "- Follow up on in-progress work that seems stalled\n"
     "Be decisive and take concrete action."
 )

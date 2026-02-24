@@ -1,4 +1,8 @@
+import logging
+
 from strands import tool
+
+logger = logging.getLogger(__name__)
 
 
 @tool
@@ -43,6 +47,7 @@ def hire_persona(
         tools=tool_list,
         picks_up=picks_up_list,
     )
+    logger.info("[tool] hire_persona: %s (%s) as %s [%s]", persona_id, name, role, persona_type)
     return result
 
 
@@ -85,6 +90,7 @@ def create_role(
     except (FileNotFoundError, ValueError) as e:
         return f"Error: {e}"
 
+    logger.info("[tool] create_role: %s (%s)", role_id, role_type)
     return f"Role '{role_id}' created successfully. HR can now hire personas with this role."
 
 
@@ -98,6 +104,7 @@ def fire_persona(persona_id: str, reason: str = "") -> str:
     """
     from opencompany.company.personas import fire_persona_sync
 
+    logger.info("[tool] fire_persona: %s (reason: %s)", persona_id, reason or "none")
     return fire_persona_sync(persona_id=persona_id, reason=reason)
 
 

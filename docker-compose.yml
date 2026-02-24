@@ -32,6 +32,8 @@ services:
     ports:
       - "8001:8000"
     env_file: .env
+    environment:
+      LOG_DIR: /app/logs
     depends_on:
       db:
         condition: service_healthy
@@ -40,6 +42,7 @@ services:
     volumes:
       - ./workspaces:/app/workspaces
       - ./config:/app/config
+      - ./logs:/app/logs
     networks:
       - backend
     restart: unless-stopped

@@ -6,6 +6,8 @@
 <title>NovaCraft — Control Tower</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Outfit:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
 <style>
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -391,6 +393,30 @@ body::before {
   display: flex; align-items: center; justify-content: center;
   height: 100%; color: var(--text-dim); font-size: 12px;
 }
+
+/* ── Markdown rendered content ────────────────── */
+.md-content { font-size: 12px; color: var(--text-main); line-height: 1.6; }
+.md-content p { margin: 0 0 8px; }
+.md-content p:last-child { margin-bottom: 0; }
+.md-content ul, .md-content ol { margin: 4px 0 8px 18px; padding: 0; }
+.md-content li { margin-bottom: 3px; }
+.md-content li::marker { color: var(--text-dim); }
+.md-content code { font-family: var(--font-mono); font-size: 11px; background: var(--bg-deep); padding: 1px 5px; border-radius: 3px; color: var(--cyan); }
+.md-content pre { background: var(--bg-deep); border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin: 6px 0; overflow-x: auto; }
+.md-content pre code { background: none; padding: 0; color: var(--text-main); }
+.md-content strong { color: var(--text-bright); font-weight: 600; }
+.md-content em { color: var(--text-main); }
+.md-content h1, .md-content h2, .md-content h3, .md-content h4 {
+  font-family: var(--font-display); color: var(--text-bright); margin: 10px 0 6px;
+  font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+}
+.md-content blockquote { border-left: 2px solid var(--cyan); padding-left: 10px; margin: 6px 0; color: var(--text-dim); }
+.md-content a { color: var(--cyan); text-decoration: none; }
+.md-content a:hover { text-decoration: underline; }
+.md-content hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
+.md-content table { border-collapse: collapse; width: 100%; margin: 6px 0; font-size: 11px; }
+.md-content th, .md-content td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; }
+.md-content th { background: var(--bg-card); color: var(--text-bright); font-weight: 600; }
 </style>
 </head>
 <body>
@@ -403,6 +429,7 @@ body::before {
       <span>Control Tower</span>
     </div>
     <div class="header-meta">
+      <button id="resetBtn" style="font-family:var(--font-display);font-size:9px;padding:4px 12px;background:var(--red);color:#fff;border:none;border-radius:4px;cursor:pointer;letter-spacing:1px;font-weight:700;margin-right:8px;transition:opacity .15s" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">RESET</button>
       <div class="status-dot" id="statusDot"></div>
       <span id="connLabel">LIVE</span>
       <span class="clock" id="clock"></span>
@@ -471,6 +498,30 @@ body::before {
 
   function clearChildren(node) {
     while (node.firstChild) node.removeChild(node.firstChild);
+  }
+
+  // ── Markdown renderer ────────────────────────────
+  if (typeof marked !== 'undefined') {
+    marked.setOptions({ breaks: true, gfm: true });
+  }
+  function renderMd(text) {
+    if (!text) return '';
+    const raw = String(text);
+    let html;
+    if (typeof marked !== 'undefined') {
+      html = marked.parse(raw);
+    } else {
+      html = raw.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+    }
+    // Sanitize to prevent XSS
+    if (typeof DOMPurify !== 'undefined') {
+      return DOMPurify.sanitize(html);
+    }
+    return html;
+  }
+  function setMd(element, text) {
+    element.innerHTML = renderMd(text);
+    element.classList.add('md-content');
   }
 
   // Persona colour palette (deterministic from id)
@@ -723,7 +774,9 @@ body::before {
     if (ticket.description) {
       const sec = el('div', 'modal-section');
       sec.appendChild(el('div', 'modal-label', 'Description'));
-      sec.appendChild(el('div', 'modal-text', ticket.description));
+      const descBody = el('div', 'modal-text md-content');
+      descBody.innerHTML = renderMd(ticket.description);
+      sec.appendChild(descBody);
       modal.appendChild(sec);
     }
 
@@ -765,7 +818,9 @@ body::before {
     if (ticket.result) {
       const sec = el('div', 'modal-section');
       sec.appendChild(el('div', 'modal-label', 'Result'));
-      sec.appendChild(el('div', 'modal-text', ticket.result));
+      const resultBody = el('div', 'modal-text md-content');
+      resultBody.innerHTML = renderMd(ticket.result);
+      sec.appendChild(resultBody);
       modal.appendChild(sec);
     }
 
@@ -988,8 +1043,10 @@ body::before {
         text.appendChild(document.createTextNode(actionText));
       }
       if (log.details) {
-        const detailSpan = el('span', '', ' — ' + (typeof log.details === 'string' ? log.details : JSON.stringify(log.details)));
+        const detailStr = typeof log.details === 'string' ? log.details : JSON.stringify(log.details);
+        const detailSpan = el('span', '');
         detailSpan.style.color = 'var(--text-dim)';
+        detailSpan.textContent = ' — ' + detailStr;
         text.appendChild(detailSpan);
       }
       item.appendChild(text);
@@ -1040,7 +1097,13 @@ body::before {
   function renderChatBubble(sender, text, isUser) {
     const msg = el('div', 'chat-msg ' + (isUser ? 'user' : 'bot'));
     if (!isUser) msg.appendChild(el('div', 'chat-msg-sender', sender));
-    msg.appendChild(document.createTextNode(text));
+    if (isUser) {
+      msg.appendChild(document.createTextNode(text));
+    } else {
+      const body = el('div', 'md-content');
+      body.innerHTML = renderMd(text);
+      msg.appendChild(body);
+    }
     chatMessagesEl.appendChild(msg);
   }
 
@@ -1212,7 +1275,9 @@ body::before {
       }
       item.appendChild(hdr);
 
-      item.appendChild(el('div', 'overseer-msg-body', m.message));
+      const msgBody = el('div', 'overseer-msg-body md-content');
+      msgBody.innerHTML = renderMd(m.message);
+      item.appendChild(msgBody);
 
       if (m.reply) {
         item.appendChild(el('div', 'overseer-msg-reply', 'Reply: ' + m.reply));
@@ -1246,6 +1311,24 @@ body::before {
   // Load overseer messages periodically
   setInterval(loadOverseerMessages, 5000);
   loadOverseerMessages();
+
+  // ── Reset button ─────────────────────────────────
+  document.getElementById('resetBtn').addEventListener('click', async () => {
+    if (!confirm('This will delete ALL data (personas, tickets, logs) and start fresh. Continue?')) return;
+    try {
+      const res = await fetch('/api/reset', { method: 'POST' });
+      if (!res.ok) throw new Error('Reset failed: HTTP ' + res.status);
+      // Clear in-memory state
+      Object.keys(chatHistories).forEach(k => delete chatHistories[k]);
+      overseerMessages = [];
+      clearChildren(chatMessagesEl);
+      currentChatPersona = '';
+      prevStateJSON = '';
+      poll();
+    } catch (err) {
+      alert('Reset failed: ' + err.message);
+    }
+  });
 
   // Initial load via poll, then switch to SSE
   poll();

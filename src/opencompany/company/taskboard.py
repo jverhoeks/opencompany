@@ -1,6 +1,7 @@
 """Task board: ticket lifecycle, auto-assignment, sync wrappers for tool use."""
 
 import logging
+import random
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -47,17 +48,34 @@ def find_best_solver(tags: list[str], solvers: list[dict]) -> dict | None:
     for solver in solvers:
         solver_tags = {s.lower() for s in solver["skills"]}
         score = _fuzzy_tag_score(solver_tags, ticket_tags)
+        logger.debug(
+            "Solver scoring: %s score=%.1f workload=%d (skills=%s vs tags=%s)",
+            solver["id"],
+            score,
+            solver["workload"],
+            solver["skills"],
+            tags,
+        )
         if score > 0:
             candidates.append((score, solver["workload"], solver))
 
     if candidates:
-        # Sort by score (desc), then workload (asc)
-        candidates.sort(key=lambda x: (-x[0], x[1]))
+        # Sort by score (desc), workload (asc), random tiebreaker
+        # Without the random factor, the same solver always wins when tied
+        candidates.sort(key=lambda x: (-x[0], x[1], random.random()))
+        best = candidates[0]
+        logger.info(
+            "Best solver: %s (score=%.1f, workload=%d, %d candidates)",
+            best[2]["id"],
+            best[0],
+            best[1],
+            len(candidates),
+        )
         return candidates[0][2]
 
-    # Fallback: assign to the least busy solver
+    # Fallback: assign to a random least-busy solver
     logger.info("No tag match for %s, falling back to least busy solver", tags)
-    return min(solvers, key=lambda s: s["workload"])
+    return min(solvers, key=lambda s: (s["workload"], random.random()))
 
 
 async def _create_ticket(

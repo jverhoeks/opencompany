@@ -1,14 +1,20 @@
+from __future__ import annotations
+
 import asyncio
 import concurrent.futures
+import copy
+import inspect
 import logging
 import os
 import re
-
-from strands import Agent
-from strands.models.litellm import LiteLLMModel
+from typing import TYPE_CHECKING
 
 from opencompany.agents.prompts import build_system_prompt
 from opencompany.models.db import Persona
+
+if TYPE_CHECKING:
+    from strands import Agent
+    from strands.models.litellm import LiteLLMModel
 
 logger = logging.getLogger(__name__)
 
@@ -25,14 +31,59 @@ def register_tool(name: str, func):
 
 
 def get_model(model_id: str | None = None) -> LiteLLMModel:
+    from strands.models.litellm import LiteLLMModel
+
+    resolved = model_id
+    if not resolved:
+        try:
+            from opencompany.company.config import load_company_config
+
+            resolved = load_company_config().default_model or None
+        except Exception:
+            pass
+    if not resolved:
+        resolved = os.environ.get("LITELLM_MODEL_ID") or "azure/gpt-5"
+    logger.debug("Model resolved: requested=%s → using=%s", model_id, resolved)
     return LiteLLMModel(
         client_args={
             "api_key": os.environ.get("OPENAI_API_KEY", ""),
             "api_base": os.environ.get("OPENAI_API_BASE", ""),
             "use_litellm_proxy": True,
         },
-        model_id=model_id or os.environ.get("LITELLM_MODEL_ID", "azure/gpt-5"),
+        model_id=resolved,
     )
+
+
+def _bind_persona_id(tool_func, persona_id: str):
+    """Return a copy of a Strands tool with persona_id pre-filled.
+
+    The LLM never sees the persona_id parameter — it's injected automatically.
+    This prevents agents from forgetting to pass their own ID.
+    """
+    inner = tool_func.__wrapped__ if hasattr(tool_func, "__wrapped__") else tool_func
+    sig = inspect.signature(inner)
+    if "persona_id" not in sig.parameters:
+        return tool_func
+
+    # Deep-copy the tool spec and remove persona_id from the schema
+    bound = copy.copy(tool_func)
+    spec = copy.deepcopy(tool_func.tool_spec)
+    props = spec.get("inputSchema", {}).get("json", {}).get("properties", {})
+    props.pop("persona_id", None)
+    req = spec.get("inputSchema", {}).get("json", {}).get("required", [])
+    if "persona_id" in req:
+        req.remove("persona_id")
+    bound._tool_spec = spec
+
+    # Wrap the underlying function to inject persona_id
+    original_func = tool_func._tool_func
+
+    def patched_func(*args, **kwargs):
+        kwargs.setdefault("persona_id", persona_id)
+        return original_func(*args, **kwargs)
+
+    bound._tool_func = patched_func
+    return bound
 
 
 def create_agent(
@@ -40,15 +91,22 @@ def create_agent(
     extra_tools: list | None = None,
     tools: dict | None = None,
 ) -> Agent:
+    from strands import Agent  # noqa: F811
+
     registry = tools if tools is not None else _TOOL_REGISTRY
     resolved_tools = []
+    missing_tools = []
     for tool_name in persona.tools:
         if tool_name in registry:
-            resolved_tools.append(registry[tool_name])
+            resolved_tools.append(_bind_persona_id(registry[tool_name], persona.id))
+        else:
+            missing_tools.append(tool_name)
 
     if extra_tools:
         resolved_tools.extend(extra_tools)
 
+    if missing_tools:
+        logger.debug("Persona %s: unresolved tools %s", persona.id, missing_tools)
     logger.info("Created agent for persona %s with %d tools", persona.id, len(resolved_tools))
     return Agent(
         model=get_model(persona.model_id),
@@ -115,5 +173,11 @@ async def run_persona(persona: Persona, task: str) -> AgentResult:
             total_time_ms=total_time_ms,
         )
     except Exception as e:
+        error_msg = str(e)
+        if "content_policy" in error_msg.lower() or "ContentPolicyViolation" in error_msg:
+            logger.warning("Content policy blocked agent %s: %s", persona.id, error_msg)
+            return AgentResult(
+                text="I was unable to respond due to content filtering. Please rephrase."
+            )
         logger.exception("Agent %s failed on task", persona.id)
         return AgentResult(text=f"Error: {e}")

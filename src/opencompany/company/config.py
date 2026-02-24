@@ -18,6 +18,7 @@ class CompanyConfig:
     org_styles: dict[str, dict[str, Any]]
     roles: dict[str, dict[str, Any]]
     personas: dict[str, dict[str, Any]]
+    default_model: str = ""
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
 
@@ -42,13 +43,37 @@ def load_company_config(path: str | None = None) -> CompanyConfig:
         return _cached_config
 
     with open(path) as f:
-        raw = yaml.safe_load(f)
+        try:
+            raw = yaml.safe_load(f)
+        except yaml.YAMLError as exc:
+            # Extract line info from YAML parse errors for actionable messages
+            msg = f"Failed to parse {path}"
+            if hasattr(exc, "problem_mark") and exc.problem_mark:
+                mark = exc.problem_mark
+                msg += f" at line {mark.line + 1}, column {mark.column + 1}"
+            if hasattr(exc, "problem") and exc.problem:
+                msg += f": {exc.problem}"
+            logger.error(msg)
+            raise ValueError(msg) from exc
+
+    if not isinstance(raw, dict):
+        msg = f"{path} is not a valid YAML mapping (got {type(raw).__name__})"
+        logger.error(msg)
+        raise ValueError(msg)
+
+    # Validate required top-level keys
+    missing = {"roles", "personas"} - set(raw.keys())
+    if missing:
+        msg = f"{path} missing required keys: {', '.join(sorted(missing))}"
+        logger.error(msg)
+        raise ValueError(msg)
 
     config = CompanyConfig(
         org_style=raw.get("org_style", "hierarchical"),
         org_styles=raw.get("org_styles", {}),
         roles=raw.get("roles", {}),
         personas=raw.get("personas", {}) or {},
+        default_model=raw.get("default_model", ""),
         raw=raw,
     )
 

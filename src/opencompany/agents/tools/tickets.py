@@ -1,4 +1,8 @@
+import logging
+
 from strands import tool
+
+logger = logging.getLogger(__name__)
 
 
 @tool
@@ -32,6 +36,14 @@ def create_ticket(
         tags=tag_list,
         context=context_dict,
         created_by=created_by,
+    )
+    logger.info(
+        "[%s] created ticket #%d: %s [%s] tags=%s",
+        created_by,
+        ticket_id,
+        title,
+        priority,
+        tag_list,
     )
     return f"Ticket #{ticket_id} created: {title} [{priority}]"
 
@@ -69,4 +81,5 @@ def update_ticket(ticket_id: int, status: str = "", result: str = "") -> str:
     from opencompany.company.taskboard import update_ticket_sync
 
     update_ticket_sync(ticket_id=ticket_id, status=status or None, result=result or None)
+    logger.info("[tool] update_ticket #%d → status=%s", ticket_id, status or "(unchanged)")
     return f"Ticket #{ticket_id} updated"

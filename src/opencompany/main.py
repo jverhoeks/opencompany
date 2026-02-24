@@ -12,7 +12,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import opencompany.models.db  # noqa: F401
 from opencompany.agents.runner import register_tool
-from opencompany.agents.tools import ALL_TOOLS
 from opencompany.company.engine import start_event_listener
 from opencompany.company.scheduler import scheduler, start_scheduler
 from opencompany.company.seed import seed_company
@@ -25,8 +24,40 @@ from opencompany.utils import set_main_loop
 
 load_dotenv()
 
-logging.basicConfig(level=logging.INFO)
+_log_level = getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO)
+_log_format = "%(asctime)s %(levelname)-8s %(name)s  %(message)s"
+
+logging.basicConfig(level=_log_level, format=_log_format)
+
+# Also log to file if LOG_DIR is set (mapped volume in Docker)
+_log_dir = os.environ.get("LOG_DIR", "")
+if _log_dir:
+    os.makedirs(_log_dir, exist_ok=True)
+    _fh = logging.FileHandler(os.path.join(_log_dir, "opencompany.log"))
+    _fh.setLevel(_log_level)
+    _fh.setFormatter(logging.Formatter(_log_format))
+    logging.getLogger().addHandler(_fh)
+
 logger = logging.getLogger(__name__)
+
+
+async def _run_migrations():
+    """Run Alembic migrations via subprocess to avoid event-loop conflicts."""
+    import subprocess
+
+    result = await asyncio.to_thread(
+        subprocess.run,
+        ["alembic", "upgrade", "head"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if result.returncode != 0:
+        logger.error("Alembic migration failed:\n%s", result.stderr)
+        raise RuntimeError(f"Migration failed: {result.stderr}")
+    if result.stdout:
+        for line in result.stdout.strip().splitlines():
+            logger.info("alembic: %s", line)
 
 
 async def _wait_for_db(retries: int = 20, delay: float = 1.0):
@@ -46,25 +77,58 @@ async def _wait_for_db(retries: int = 20, delay: float = 1.0):
             await asyncio.sleep(delay)
 
 
+async def _ceo_greet_overseer():
+    """On startup, CEO sends a welcome message to the overseer (customer)."""
+    try:
+        from opencompany.company.budget import check_budget
+        from opencompany.company.engine import _spawn_persona_task
+        from opencompany.models.db import Persona
+        from opencompany.models.engine import async_session
+
+        async with async_session() as session:
+            ceo = await session.get(Persona, "ceo")
+            if not ceo or ceo.status != "active":
+                logger.info("CEO greeting skipped: CEO not active")
+                return
+
+        has_budget, _ = await check_budget("ceo")
+        if not has_budget:
+            logger.info("CEO greeting skipped: CEO over budget")
+            return
+
+        _spawn_persona_task(
+            ceo,
+            "The company just started up. Greet the customer (overseer) via "
+            "contact_overseer with a warm, professional welcome. Introduce "
+            "yourself briefly and let them know you and the team are ready to "
+            "help. Ask what they'd like the company to work on today. "
+            "Keep it friendly and concise — one short paragraph.",
+            "ceo-greeting",
+        )
+        logger.info("CEO greeting task spawned")
+    except Exception:
+        logger.exception("CEO greeting failed (non-fatal)")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Store the main event loop for sync-to-async bridging in tool threads
     set_main_loop(asyncio.get_running_loop())
 
     # Register all tools
+    from opencompany.agents.tools import ALL_TOOLS
+
     for name, func in ALL_TOOLS.items():
         register_tool(name, func)
     logger.info(f"Registered {len(ALL_TOOLS)} tools")
 
     # Wait for DB
     await _wait_for_db()
+    # Dispose pool before Alembic to avoid advisory lock contention
+    await engine.dispose()
 
     # Run Alembic migrations
-    from alembic import command
-    from alembic.config import Config
-
-    alembic_cfg = Config("alembic.ini")
-    await asyncio.to_thread(command.upgrade, alembic_cfg, "head")
+    await _run_migrations()
     logger.info("Database migrations applied")
 
     # Seed personas
@@ -85,13 +149,20 @@ async def lifespan(app: FastAPI):
     )
     logger.info("Event listener started")
 
-    # Start Telegram bot
+    # CEO welcome: greet the overseer on startup
+    await _ceo_greet_overseer()
+
+    # Start Telegram bot (non-fatal — app works without it)
     telegram_app = create_telegram_app()
     if telegram_app:
-        await telegram_app.initialize()
-        await telegram_app.start()
-        await telegram_app.updater.start_polling()
-        logger.info("Telegram bot started")
+        try:
+            await telegram_app.initialize()
+            await telegram_app.start()
+            await telegram_app.updater.start_polling()
+            logger.info("Telegram bot started")
+        except Exception:
+            logger.warning("Telegram bot failed to start (non-fatal)", exc_info=True)
+            telegram_app = None
 
     yield
 
