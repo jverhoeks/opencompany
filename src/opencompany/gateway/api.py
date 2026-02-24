@@ -218,3 +218,46 @@ async def api_reset_all_budgets():
 
     count = await reset_all_budgets()
     return {"status": "ok", "reset_count": count}
+
+
+# --- Reset endpoint ---
+
+
+@router.post("/reset", dependencies=[Depends(verify_api_key)])
+async def api_reset():
+    """Truncate all data tables, flush Redis, and re-seed from config."""
+    from sqlalchemy import text
+
+    from opencompany.company.seed import seed_company
+    from opencompany.events.bus import get_redis
+    from opencompany.models.engine import async_session
+
+    async with async_session() as session:
+        # Truncate in FK-safe order
+        for table in [
+            "work_log",
+            "overseer_messages",
+            "persona_memory",
+            "policy_documents",
+            "tickets",
+            "personas",
+        ]:
+            await session.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
+        await session.commit()
+
+    # Flush Redis event stream
+    try:
+        r = await get_redis()
+        await r.xtrim("opencompany:events", maxlen=0)
+    except Exception:
+        pass
+
+    # Re-seed from config
+    await seed_company()
+
+    # Count seeded personas
+    async with async_session() as session:
+        result = await session.execute(select(Persona))
+        count = len(result.scalars().all())
+
+    return {"status": "ok", "personas_seeded": count}

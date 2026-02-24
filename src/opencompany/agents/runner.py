@@ -165,5 +165,11 @@ async def run_persona(persona: Persona, task: str) -> AgentResult:
             total_time_ms=total_time_ms,
         )
     except Exception as e:
+        error_msg = str(e)
+        if "content_policy" in error_msg.lower() or "ContentPolicyViolation" in error_msg:
+            logger.warning("Content policy blocked agent %s: %s", persona.id, error_msg)
+            return AgentResult(
+                text="I was unable to respond due to content filtering. Please rephrase."
+            )
         logger.exception("Agent %s failed on task", persona.id)
         return AgentResult(text=f"Error: {e}")

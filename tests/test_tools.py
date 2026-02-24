@@ -36,7 +36,7 @@ def test_company_tool_schema():
 def test_all_tools_registry():
     from opencompany.agents.tools import ALL_TOOLS
 
-    assert len(ALL_TOOLS) == 18
+    assert len(ALL_TOOLS) == 23
     for name, func in ALL_TOOLS.items():
         assert callable(func), f"{name} is not callable"
 

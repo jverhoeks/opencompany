@@ -461,12 +461,17 @@ async def test_seed_company(db_engine, tmp_path):
     config_file = tmp_path / "company.yaml"
     config_file.write_text(
         """
-personas:
-  - id: test-ceo
-    name: Test CEO
-    role: CEO
+roles:
+  ceo:
     type: manager
-    skills: [strategy]
+    builtin: true
+    responsibilities: Run the company.
+    tools: []
+personas:
+  test-ceo:
+    role: ceo
+    name: Test CEO
+    type: manager
     backstory: A test CEO.
 """
     )

@@ -25,10 +25,20 @@ from opencompany.utils import set_main_loop
 
 load_dotenv()
 
-logging.basicConfig(
-    level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO),
-    format="%(asctime)s %(levelname)-8s %(name)s  %(message)s",
-)
+_log_level = getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO)
+_log_format = "%(asctime)s %(levelname)-8s %(name)s  %(message)s"
+
+logging.basicConfig(level=_log_level, format=_log_format)
+
+# Also log to file if LOG_DIR is set (mapped volume in Docker)
+_log_dir = os.environ.get("LOG_DIR", "")
+if _log_dir:
+    os.makedirs(_log_dir, exist_ok=True)
+    _fh = logging.FileHandler(os.path.join(_log_dir, "opencompany.log"))
+    _fh.setLevel(_log_level)
+    _fh.setFormatter(logging.Formatter(_log_format))
+    logging.getLogger().addHandler(_fh)
+
 logger = logging.getLogger(__name__)
 
 
@@ -141,13 +151,17 @@ async def lifespan(app: FastAPI):
     # CEO welcome: greet the overseer on startup
     await _ceo_greet_overseer()
 
-    # Start Telegram bot
+    # Start Telegram bot (non-fatal — app works without it)
     telegram_app = create_telegram_app()
     if telegram_app:
-        await telegram_app.initialize()
-        await telegram_app.start()
-        await telegram_app.updater.start_polling()
-        logger.info("Telegram bot started")
+        try:
+            await telegram_app.initialize()
+            await telegram_app.start()
+            await telegram_app.updater.start_polling()
+            logger.info("Telegram bot started")
+        except Exception:
+            logger.warning("Telegram bot failed to start (non-fatal)", exc_info=True)
+            telegram_app = None
 
     yield
 

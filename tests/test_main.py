@@ -268,7 +268,7 @@ async def test_health_all_ok():
 
     with (
         patch("opencompany.main.engine", mock_engine),
-        patch("opencompany.main.get_redis", new_callable=AsyncMock, return_value=mock_redis),
+        patch("opencompany.events.bus.get_redis", new_callable=AsyncMock, return_value=mock_redis),
     ):
         response = await health()
 
@@ -298,7 +298,7 @@ async def test_health_db_error():
 
     with (
         patch("opencompany.main.engine", mock_engine),
-        patch("opencompany.main.get_redis", new_callable=AsyncMock, return_value=mock_redis),
+        patch("opencompany.events.bus.get_redis", new_callable=AsyncMock, return_value=mock_redis),
     ):
         response = await health()
 
@@ -325,7 +325,7 @@ async def test_health_redis_error():
     with (
         patch("opencompany.main.engine", mock_engine),
         patch(
-            "opencompany.main.get_redis",
+            "opencompany.events.bus.get_redis",
             new_callable=AsyncMock,
             side_effect=ConnectionError("redis down"),
         ),
