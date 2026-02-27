@@ -7,7 +7,7 @@
 # No PM, no leads. Everyone ships or gets shipped out.
 # ============================================================================
 
-default_model: azure/gpt-5-mini
+default_model: ""
 
 org_style: dictator
 
@@ -22,7 +22,6 @@ roles:
   ceo:
     builtin: true
     type: manager
-    model: azure/gpt-5-mini
     daily_token_budget: 200000
     max_headcount: 1
     responsibilities: |
@@ -79,7 +78,6 @@ roles:
   hr:
     builtin: true
     type: manager
-    model: azure/gpt-5-mini
     daily_token_budget: 150000
     max_headcount: 1
     responsibilities: |
