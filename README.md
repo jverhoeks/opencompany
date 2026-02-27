@@ -57,6 +57,64 @@ The deployment engineer asked us to pick option A or B. They're blocking on us. 
 
 ---
 
+## MUSKMODE(tm): MarsPass Edition
+
+> *What happens when you replace the friendly hierarchical CEO with a sleep-deprived
+> first-principles thinker who considers meetings "productivity funerals"?*
+
+We swapped to `company-musk.yaml` -- a flat org where CEO **Elon Flux** assigns
+directly to solvers. No PMs. No leads. No middle management. Ship or die.
+
+We told Elon Flux: *"We just acquired a Mars colonization startup. Investors from
+SpaceY are coming TOMORROW for a demo. Build MarsPass -- a reservation system for
+Mars colony spots. Pricing tiers: Economy Shuttle ($250k), Business Class ($1M),
+First Class Suite ($5M). Ship it tonight or we lose the deal."*
+
+**1. Elon Flux didn't call a meeting. He created 21 tickets.**
+
+![MarsPass team in action](docs/screenshots/musk-02-team-in-action.png)
+
+HR (Dash Reeves, former military recruiter) speed-hired 5 specialists in under
+2 minutes: Zara Momentum (fullstack), Kai Overdrive (systems), Nova Blitz
+(product hacker), Pixel Thrust (designer-engineer), and Echo Deadline (technical writer).
+No interviews. No culture fit assessments. "Skills match. Shipping them now."
+
+**2. The task board went CRITICAL.**
+
+23 tickets. 4 critical. 7 high priority. Highlights:
+- *"Deploy MarsPass to staging -- INVESTORS TOMORROW"* -- CRITICAL
+- *"Integrate Stripe for reservation deposits"* -- CRITICAL
+- *"Investor demo script -- 3 minutes MAX"* -- HIGH
+- *"Mars atmospheric particle effects"* -- because Elon Flux has priorities
+
+**3. We clicked on Elon Flux to see the damage.**
+
+![Elon Flux persona detail](docs/screenshots/musk-03-ceo-detail.png)
+
+21 actions. 21 tickets created. Zero meetings scheduled. The man is a machine.
+Token budget at 44% and climbing. The flat org means every ticket goes directly
+from CEO to solver -- no delegation chains, no approval loops, no "let me sync
+with the team." Just: create ticket, assign solver, move on.
+
+**The difference?** NovaCraft's hierarchical style took 20 minutes of delegation
+chains before work started. MUSKMODE had 5 people coding in under 2 minutes.
+Both approaches work. One just sleeps less.
+
+### Switching company styles
+
+```bash
+# Use the hierarchical NovaCraft config (CEO → PM → Lead → Solver)
+cp config/company-novacraft.yaml config/company.yaml
+
+# Use the flat MUSKMODE config (CEO → Solver, no middle management)
+cp config/company-musk.yaml config/company.yaml
+
+# Rebuild and watch the chaos
+./rebuild-all.sh
+```
+
+---
+
 ## What Is This, Actually?
 
 ```
@@ -291,7 +349,9 @@ src/opencompany/
     api.py                    REST API (Bearer auth)
     dashboard.py              Dashboard + SSE stream
     channels/telegram.py      Telegram adapter
-config/company.yaml           Org chart, roles, personas, personalities
+config/company.yaml           Active org chart, roles, personas, personalities
+config/company-novacraft.yaml Hierarchical style (CEO→PM→Lead→Solver)
+config/company-musk.yaml      Flat MUSKMODE style (CEO→Solver, no middle mgmt)
 workspaces/                   Runtime sandboxes (private + shared)
 ```
 
@@ -318,4 +378,6 @@ MIT
 
 *Built by humans who wanted to see what happens when you give AI personas
 a task board, a budget, and the power to hire each other.
-Spoiler: they hired 15 people to make a pizza website.*
+Spoiler: one team hired 15 people to make a pizza website.
+The other team shipped a Mars colony reservation system in under 10 minutes
+with zero meetings and a CEO who sleeps 4 hours.*
