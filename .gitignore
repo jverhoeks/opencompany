@@ -40,6 +40,10 @@ htmlcov/
 # Worktrees
 .worktrees/
 
+# CDK
+infra/node_modules/
+infra/cdk.out/
+
 # Workspaces (runtime-generated agent sandboxes)
 workspaces/*/
 !workspaces/.gitkeep
