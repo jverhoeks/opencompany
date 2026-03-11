@@ -1,291 +1,400 @@
+/**
+ * OpenCompany AWS CDK stack.
+ *
+ * Deploys: VPC | RDS Postgres | ECS Fargate (app + Redis sidecar) | ingress.
+ *
+ * Usage:
+ *   cd infra && npm install
+ *   npx cdk bootstrap                  # first time only
+ *   npx cdk deploy                     # API Gateway HTTP API (default, ~$28/mo)
+ *   npx cdk deploy -c use_alb=true     # ALB instead (~$43/mo)
+ */
+
 import * as cdk from "aws-cdk-lib";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as ecs from "aws-cdk-lib/aws-ecs";
-import * as ecr_assets from "aws-cdk-lib/aws-ecr-assets";
+import * as ecs_patterns from "aws-cdk-lib/aws-ecs-patterns";
 import * as iam from "aws-cdk-lib/aws-iam";
-import * as logs from "aws-cdk-lib/aws-logs";
 import * as rds from "aws-cdk-lib/aws-rds";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
+import * as logs from "aws-cdk-lib/aws-logs";
+import * as ecr_assets from "aws-cdk-lib/aws-ecr-assets";
 import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
-import * as elbv2 from "aws-cdk-lib/aws-elasticloadbalancingv2";
+import * as sd from "aws-cdk-lib/aws-servicediscovery";
 import { Construct } from "constructs";
+import * as path from "path";
+
+/** Supported model providers. Bedrock options use IAM auth (no API key needed). */
+type ModelProvider = "bedrock-anthropic" | "bedrock-nova" | "external";
+
+const BEDROCK_MODELS: Record<string, string> = {
+  "bedrock-anthropic": "bedrock/anthropic.claude-sonnet-4-20250514-v1:0",
+  "bedrock-nova": "bedrock/amazon.nova-pro-v1:0",
+};
 
 export interface OpenCompanyStackProps extends cdk.StackProps {
-  modelProvider: string; // "bedrock-anthropic" | "bedrock-nova" | "external"
-  useAlb: boolean;
+  useAlb?: boolean;
+  modelProvider?: ModelProvider;
 }
-
-// Bedrock model IDs per provider choice
-const BEDROCK_MODELS: Record<string, { modelId: string; envModelId: string }> = {
-  "bedrock-anthropic": {
-    modelId: "us.anthropic.claude-sonnet-4-20250514-v1:0",
-    envModelId: "us.anthropic.claude-sonnet-4-20250514-v1:0",
-  },
-  "bedrock-nova": {
-    modelId: "amazon.nova-pro-v1:0",
-    envModelId: "amazon.nova-pro-v1:0",
-  },
-};
 
 export class OpenCompanyStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: OpenCompanyStackProps) {
     super(scope, id, props);
 
-    const isBedrock = props.modelProvider.startsWith("bedrock");
+    const useAlb = props.useAlb ?? false;
+    const modelProvider: ModelProvider = props.modelProvider ?? "external";
+    const useBedrock = modelProvider.startsWith("bedrock");
 
-    // ── VPC ────────────────────────────────────────────────────────────
+    // ------------------------------------------------------------------ //
+    // VPC — 2 AZs, public + isolated subnets, NO NAT (saves ~$32/mo)
+    // ------------------------------------------------------------------ //
     const vpc = new ec2.Vpc(this, "Vpc", {
       maxAzs: 2,
-      natGateways: 0, // keep costs low — Fargate in public subnet
+      natGateways: 0,
       subnetConfiguration: [
-        { name: "Public", subnetType: ec2.SubnetType.PUBLIC, cidrMask: 24 },
-        { name: "Isolated", subnetType: ec2.SubnetType.PRIVATE_ISOLATED, cidrMask: 24 },
+        {
+          name: "Public",
+          subnetType: ec2.SubnetType.PUBLIC,
+          cidrMask: 24,
+        },
+        {
+          name: "Isolated",
+          subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
+          cidrMask: 24,
+        },
       ],
     });
 
-    // VPC endpoint for Secrets Manager (avoids NAT)
+    // VPC endpoint for Secrets Manager (Fargate in public subnets needs this)
     vpc.addInterfaceEndpoint("SecretsManagerEndpoint", {
       service: ec2.InterfaceVpcEndpointAwsService.SECRETS_MANAGER,
     });
 
-    // VPC endpoint for Bedrock Runtime (avoids NAT, keeps traffic on AWS backbone)
-    if (isBedrock) {
-      vpc.addInterfaceEndpoint("BedrockRuntimeEndpoint", {
-        service: new ec2.InterfaceVpcEndpointService(
-          `com.amazonaws.${this.region}.bedrock-runtime`
-        ),
-      });
-    }
+    // ------------------------------------------------------------------ //
+    // Security groups
+    // ------------------------------------------------------------------ //
+    const appSg = new ec2.SecurityGroup(this, "AppSg", {
+      vpc,
+      description: "Fargate app",
+    });
 
-    // ── RDS PostgreSQL ─────────────────────────────────────────────────
-    const dbSg = new ec2.SecurityGroup(this, "DbSg", { vpc });
-    const db = new rds.DatabaseInstance(this, "Postgres", {
-      engine: rds.DatabaseInstanceEngine.postgres({ version: rds.PostgresEngineVersion.VER_17 }),
-      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.MICRO),
+    const dbSg = new ec2.SecurityGroup(this, "DbSg", {
+      vpc,
+      description: "RDS Postgres",
+    });
+    dbSg.addIngressRule(appSg, ec2.Port.tcp(5432), "Fargate -> Postgres");
+
+    // ------------------------------------------------------------------ //
+    // RDS PostgreSQL t4g.micro (single-AZ, ~$14/mo)
+    // ------------------------------------------------------------------ //
+    const db = new rds.DatabaseInstance(this, "Database", {
+      engine: rds.DatabaseInstanceEngine.postgres({
+        version: rds.PostgresEngineVersion.VER_17,
+      }),
+      instanceType: ec2.InstanceType.of(
+        ec2.InstanceClass.T4G,
+        ec2.InstanceSize.MICRO
+      ),
       vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
       securityGroups: [dbSg],
-      databaseName: "opencompany",
       credentials: rds.Credentials.fromGeneratedSecret("opencompany"),
+      databaseName: "opencompany",
+      allocatedStorage: 20,
+      maxAllocatedStorage: 50,
       removalPolicy: cdk.RemovalPolicy.SNAPSHOT,
+      deletionProtection: false,
+      backupRetention: cdk.Duration.days(7),
     });
 
-    // ── Secrets Manager ────────────────────────────────────────────────
-    const appSecret = new secretsmanager.Secret(this, "AppSecret", {
+    // ------------------------------------------------------------------ //
+    // App secrets (populate via AWS console / CLI after first deploy)
+    // ------------------------------------------------------------------ //
+    const secretValues: Record<string, cdk.SecretValue> = {
+      TELEGRAM_BOT_TOKEN: cdk.SecretValue.unsafePlainText("changeme"),
+      API_KEY: cdk.SecretValue.unsafePlainText("changeme"),
+    };
+    if (!useBedrock) {
+      // External provider (OpenAI, LiteLLM proxy, etc.) — needs API key
+      secretValues.OPENAI_API_KEY =
+        cdk.SecretValue.unsafePlainText("changeme");
+      secretValues.OPENAI_API_BASE = cdk.SecretValue.unsafePlainText(
+        "https://api.openai.com"
+      );
+      secretValues.LITELLM_MODEL_ID =
+        cdk.SecretValue.unsafePlainText("gpt-4");
+    }
+
+    const appSecrets = new secretsmanager.Secret(this, "AppSecrets", {
       secretName: "opencompany/app-config",
-      generateSecretString: {
-        secretStringTemplate: JSON.stringify({
-          TELEGRAM_BOT_TOKEN: "CHANGE_ME",
-          API_KEY: "CHANGE_ME",
-          ...(isBedrock
-            ? {}
-            : {
-                OPENAI_API_KEY: "CHANGE_ME",
-                OPENAI_API_BASE: "https://api.openai.com",
-                LITELLM_MODEL_ID: "gpt-4",
-              }),
-        }),
-        generateStringKey: "_generated",
-      },
+      secretObjectValue: secretValues,
     });
 
-    // ── ECS Cluster ────────────────────────────────────────────────────
+    // ------------------------------------------------------------------ //
+    // Docker image (built from project Dockerfile, pushed to ECR)
+    // ------------------------------------------------------------------ //
+    const imageAsset = new ecr_assets.DockerImageAsset(this, "AppImage", {
+      directory: path.join(__dirname, "../.."), // project root
+      exclude: [
+        "infra",
+        ".venv",
+        ".git",
+        ".playwright-mcp",
+        "node_modules",
+        "__pycache__",
+        "*.pyc",
+      ],
+    });
+
+    // ------------------------------------------------------------------ //
+    // ECS cluster + Fargate task definition
+    // ------------------------------------------------------------------ //
     const cluster = new ecs.Cluster(this, "Cluster", { vpc });
 
-    // ── Docker image ───────────────────────────────────────────────────
-    const image = new ecr_assets.DockerImageAsset(this, "AppImage", {
-      directory: "..", // repo root
-    });
-
-    // ── Task definition ────────────────────────────────────────────────
     const taskDef = new ecs.FargateTaskDefinition(this, "TaskDef", {
       cpu: 256,
       memoryLimitMiB: 512,
     });
 
-    // Bedrock IAM policy — allows the ECS task to call Bedrock models
-    if (isBedrock) {
-      const bedrockModel = BEDROCK_MODELS[props.modelProvider];
-      const modelArn = bedrockModel
-        ? `arn:aws:bedrock:${this.region}::foundation-model/${bedrockModel.modelId}`
-        : "*";
+    // Redis sidecar (ephemeral — fine for pub/sub event bus)
+    const redisContainer = taskDef.addContainer("redis", {
+      image: ecs.ContainerImage.fromRegistry("redis:7-alpine"),
+      portMappings: [{ containerPort: 6379 }],
+      logging: ecs.LogDrivers.awsLogs({
+        streamPrefix: "redis",
+        logRetention: logs.RetentionDays.ONE_WEEK,
+      }),
+      healthCheck: {
+        command: ["CMD", "redis-cli", "ping"],
+        interval: cdk.Duration.seconds(10),
+        timeout: cdk.Duration.seconds(3),
+        retries: 3,
+      },
+    });
 
-      taskDef.addToTaskRolePolicy(
+    // App container — environment varies by model provider
+    const appEnv: Record<string, string> = {
+      DB_HOST: db.dbInstanceEndpointAddress,
+      DB_PORT: db.dbInstanceEndpointPort,
+      DB_NAME: "opencompany",
+      REDIS_URL: "redis://localhost:6379/0",
+      LOG_LEVEL: "INFO",
+      CEO_KICKOFF_INTERVAL_SECONDS: "0",
+      HEARTBEAT_INTERVAL_SECONDS: "0",
+    };
+
+    if (useBedrock) {
+      // Bedrock uses IAM auth — no API key needed. LiteLLM reads AWS creds
+      // from the environment automatically (ECS task role).
+      appEnv.LITELLM_MODEL_ID = BEDROCK_MODELS[modelProvider];
+      appEnv.AWS_REGION_NAME = cdk.Stack.of(this).region;
+    }
+
+    const appContainerSecrets: Record<string, ecs.Secret> = {
+      DB_USER: ecs.Secret.fromSecretsManager(db.secret!, "username"),
+      DB_PASSWORD: ecs.Secret.fromSecretsManager(db.secret!, "password"),
+      TELEGRAM_BOT_TOKEN: ecs.Secret.fromSecretsManager(
+        appSecrets,
+        "TELEGRAM_BOT_TOKEN"
+      ),
+      API_KEY: ecs.Secret.fromSecretsManager(appSecrets, "API_KEY"),
+    };
+
+    if (!useBedrock) {
+      // External provider needs API key, base URL, and model ID from secrets
+      appContainerSecrets.OPENAI_API_KEY = ecs.Secret.fromSecretsManager(
+        appSecrets,
+        "OPENAI_API_KEY"
+      );
+      appContainerSecrets.OPENAI_API_BASE = ecs.Secret.fromSecretsManager(
+        appSecrets,
+        "OPENAI_API_BASE"
+      );
+      appContainerSecrets.LITELLM_MODEL_ID = ecs.Secret.fromSecretsManager(
+        appSecrets,
+        "LITELLM_MODEL_ID"
+      );
+    }
+
+    const appContainer = taskDef.addContainer("app", {
+      image: ecs.ContainerImage.fromDockerImageAsset(imageAsset),
+      portMappings: [{ containerPort: 8000, name: "app" }],
+      environment: appEnv,
+      secrets: appContainerSecrets,
+      logging: ecs.LogDrivers.awsLogs({
+        streamPrefix: "opencompany",
+        logRetention: logs.RetentionDays.TWO_WEEKS,
+      }),
+    });
+
+    // Grant Bedrock invoke permissions to the task role
+    if (useBedrock) {
+      taskDef.taskRole.addToPrincipalPolicy(
         new iam.PolicyStatement({
-          sid: "AllowBedrockInvoke",
-          effect: iam.Effect.ALLOW,
-          actions: [
-            "bedrock:InvokeModel",
-            "bedrock:InvokeModelWithResponseStream",
-          ],
-          resources: [modelArn],
+          actions: ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+          resources: ["arn:aws:bedrock:*::foundation-model/*"],
         })
       );
     }
 
-    // Grant Secrets Manager read
-    appSecret.grantRead(taskDef.taskRole);
-    db.secret?.grantRead(taskDef.taskRole);
-
-    // ── Log group ──────────────────────────────────────────────────────
-    const logGroup = new logs.LogGroup(this, "AppLogs", {
-      logGroupName: "/aws/ecs/opencompany",
-      retention: logs.RetentionDays.TWO_WEEKS,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    appContainer.addContainerDependencies({
+      container: redisContainer,
+      condition: ecs.ContainerDependencyCondition.HEALTHY,
     });
 
-    // ── Build environment variables ────────────────────────────────────
-    const environment: Record<string, string> = {
-      LOG_LEVEL: "INFO",
-      REDIS_URL: "redis://localhost:6379/0", // Redis sidecar
-    };
-
-    if (isBedrock) {
-      const bedrockModel = BEDROCK_MODELS[props.modelProvider];
-      environment["MODEL_PROVIDER"] = "bedrock";
-      environment["BEDROCK_MODEL_ID"] = bedrockModel?.envModelId ?? "";
-      environment["AWS_REGION"] = this.region;
+    // ------------------------------------------------------------------ //
+    // Ingress: ALB (opt-in) or API Gateway HTTP API (default)
+    // ------------------------------------------------------------------ //
+    if (useAlb) {
+      this.createAlbIngress(vpc, cluster, taskDef, appSg);
     } else {
-      environment["MODEL_PROVIDER"] = "litellm";
+      this.createApiGwIngress(vpc, cluster, taskDef, appSg);
     }
 
-    // ── App container ──────────────────────────────────────────────────
-    const appContainer = taskDef.addContainer("app", {
-      image: ecs.ContainerImage.fromDockerImageAsset(image),
-      logging: ecs.LogDrivers.awsLogs({ streamPrefix: "app", logGroup }),
-      environment,
-      secrets: {
-        // Inject secrets from Secrets Manager as env vars
-        TELEGRAM_BOT_TOKEN: ecs.Secret.fromSecretsManager(appSecret, "TELEGRAM_BOT_TOKEN"),
-        API_KEY: ecs.Secret.fromSecretsManager(appSecret, "API_KEY"),
-        ...(isBedrock
-          ? {}
-          : {
-              OPENAI_API_KEY: ecs.Secret.fromSecretsManager(appSecret, "OPENAI_API_KEY"),
-              OPENAI_API_BASE: ecs.Secret.fromSecretsManager(appSecret, "OPENAI_API_BASE"),
-              LITELLM_MODEL_ID: ecs.Secret.fromSecretsManager(appSecret, "LITELLM_MODEL_ID"),
-            }),
-      },
-      healthCheck: {
-        command: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"],
-        interval: cdk.Duration.seconds(30),
-        timeout: cdk.Duration.seconds(5),
-        retries: 3,
-      },
-      portMappings: [{ containerPort: 8000 }],
+    // ------------------------------------------------------------------ //
+    // Outputs
+    // ------------------------------------------------------------------ //
+    new cdk.CfnOutput(this, "DbSecretArn", {
+      value: db.secret!.secretArn,
+    });
+    new cdk.CfnOutput(this, "AppSecretsArn", {
+      value: appSecrets.secretArn,
+    });
+    new cdk.CfnOutput(this, "EcsCluster", {
+      value: cluster.clusterName,
+    });
+  }
+
+  // ==================================================================== //
+  // ALB mode — uses ecs-patterns L3 construct (~$43/mo total)
+  // ==================================================================== //
+  private createAlbIngress(
+    vpc: ec2.Vpc,
+    cluster: ecs.Cluster,
+    taskDef: ecs.FargateTaskDefinition,
+    appSg: ec2.SecurityGroup
+  ) {
+    const service =
+      new ecs_patterns.ApplicationLoadBalancedFargateService(
+        this,
+        "Service",
+        {
+          cluster,
+          taskDefinition: taskDef,
+          assignPublicIp: true,
+          taskSubnets: { subnetType: ec2.SubnetType.PUBLIC },
+          publicLoadBalancer: true,
+          desiredCount: 1,
+          healthCheck: {
+            command: [
+              "CMD-SHELL",
+              "curl -f http://localhost:8000/health || exit 1",
+            ],
+            interval: cdk.Duration.seconds(30),
+            timeout: cdk.Duration.seconds(5),
+            retries: 3,
+            startPeriod: cdk.Duration.seconds(60),
+          },
+        }
+      );
+
+    service.targetGroup.configureHealthCheck({
+      path: "/health",
+      interval: cdk.Duration.seconds(30),
+      healthyThresholdCount: 2,
     });
 
-    // Inject DATABASE_URL from RDS secret
-    if (db.secret) {
-      appContainer.addSecret(
-        "DB_HOST",
-        ecs.Secret.fromSecretsManager(db.secret, "host")
-      );
-      appContainer.addSecret(
-        "DB_PORT",
-        ecs.Secret.fromSecretsManager(db.secret, "port")
-      );
-      appContainer.addSecret(
-        "DB_USER",
-        ecs.Secret.fromSecretsManager(db.secret, "username")
-      );
-      appContainer.addSecret(
-        "DB_PASSWORD",
-        ecs.Secret.fromSecretsManager(db.secret, "password")
-      );
-      appContainer.addEnvironment("DB_NAME", "opencompany");
-    }
+    service.service.connections.addSecurityGroup(appSg);
 
-    // ── Redis sidecar ──────────────────────────────────────────────────
-    taskDef.addContainer("redis", {
-      image: ecs.ContainerImage.fromRegistry("redis:7-alpine"),
-      memoryLimitMiB: 128,
-      essential: false,
-      logging: ecs.LogDrivers.awsLogs({ streamPrefix: "redis", logGroup }),
-      portMappings: [{ containerPort: 6379 }],
+    new cdk.CfnOutput(this, "AppUrl", {
+      value: `http://${service.loadBalancer.loadBalancerDnsName}`,
+    });
+  }
+
+  // ==================================================================== //
+  // API Gateway HTTP API mode — VPC Link + Cloud Map (~$28/mo total)
+  // ==================================================================== //
+  private createApiGwIngress(
+    vpc: ec2.Vpc,
+    cluster: ecs.Cluster,
+    taskDef: ecs.FargateTaskDefinition,
+    appSg: ec2.SecurityGroup
+  ) {
+    // Cloud Map namespace for service discovery
+    const namespace = new sd.PrivateDnsNamespace(this, "Namespace", {
+      name: "opencompany.local",
+      vpc,
     });
 
-    // ── Security group for ECS ─────────────────────────────────────────
-    const ecsSg = new ec2.SecurityGroup(this, "EcsSg", { vpc });
-    dbSg.addIngressRule(ecsSg, ec2.Port.tcp(5432), "ECS → RDS");
-
-    // ── Fargate service ────────────────────────────────────────────────
     const service = new ecs.FargateService(this, "Service", {
       cluster,
       taskDefinition: taskDef,
       desiredCount: 1,
       assignPublicIp: true,
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
-      securityGroups: [ecsSg],
-      enableExecuteCommand: true,
+      securityGroups: [appSg],
+      cloudMapOptions: {
+        cloudMapNamespace: namespace,
+        name: "app",
+        containerPort: 8000,
+      },
     });
 
-    // ── Ingress ────────────────────────────────────────────────────────
-    if (props.useAlb) {
-      const alb = new elbv2.ApplicationLoadBalancer(this, "Alb", {
-        vpc,
-        internetFacing: true,
-      });
-      const listener = alb.addListener("Http", { port: 80 });
-      listener.addTargets("EcsTarget", {
-        port: 8000,
-        targets: [service],
-        healthCheck: { path: "/health" },
-      });
-      ecsSg.addIngressRule(
-        ec2.Peer.securityGroupId(alb.connections.securityGroups[0].securityGroupId),
-        ec2.Port.tcp(8000),
-        "ALB → ECS"
-      );
-      new cdk.CfnOutput(this, "AppUrl", { value: `http://${alb.loadBalancerDnsName}` });
-    } else {
-      // API Gateway HTTP API
-      const api = new apigwv2.CfnApi(this, "HttpApi", {
-        name: "OpenCompanyApi",
-        protocolType: "HTTP",
-      });
+    // VPC Link security group
+    const vpcLinkSg = new ec2.SecurityGroup(this, "VpcLinkSg", {
+      vpc,
+      description: "API GW VPC Link",
+    });
+    appSg.addIngressRule(
+      vpcLinkSg,
+      ec2.Port.tcp(8000),
+      "VPC Link -> App"
+    );
 
-      const vpcLink = new apigwv2.CfnVpcLink(this, "VpcLink", {
-        name: "OpenCompanyVpcLink",
-        subnetIds: vpc.publicSubnets.map((s) => s.subnetId),
-        securityGroupIds: [ecsSg.securityGroupId],
-      });
+    // VPC Link (L1 — always stable, no alpha dependency)
+    const vpcLink = new apigwv2.CfnVpcLink(this, "VpcLink", {
+      name: "opencompany-vpclink",
+      subnetIds: vpc.publicSubnets.map((s) => s.subnetId),
+      securityGroupIds: [vpcLinkSg.securityGroupId],
+    });
 
-      // Allow inbound from API GW via VPC Link
-      ecsSg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(8000), "API GW → ECS");
+    // HTTP API
+    const httpApi = new apigwv2.CfnApi(this, "HttpApi", {
+      name: "opencompany-api",
+      protocolType: "HTTP",
+    });
 
-      const integration = new apigwv2.CfnIntegration(this, "Integration", {
-        apiId: api.ref,
+    // Integration: HTTP_PROXY via VPC Link -> Cloud Map service
+    const integration = new apigwv2.CfnIntegration(
+      this,
+      "ApiIntegration",
+      {
+        apiId: httpApi.ref,
         integrationType: "HTTP_PROXY",
-        integrationUri: service.cloudMapService
-          ? service.cloudMapService.serviceArn
-          : `http://localhost:8000`,
+        integrationUri: service.cloudMapService!.serviceArn,
         integrationMethod: "ANY",
         connectionType: "VPC_LINK",
         connectionId: vpcLink.ref,
         payloadFormatVersion: "1.0",
-      });
+      }
+    );
 
-      new apigwv2.CfnRoute(this, "DefaultRoute", {
-        apiId: api.ref,
-        routeKey: "$default",
-        target: `integrations/${integration.ref}`,
-      });
+    // Default catch-all route
+    new apigwv2.CfnRoute(this, "DefaultRoute", {
+      apiId: httpApi.ref,
+      routeKey: "$default",
+      target: cdk.Fn.join("", ["integrations/", integration.ref]),
+    });
 
-      const stage = new apigwv2.CfnStage(this, "DefaultStage", {
-        apiId: api.ref,
-        stageName: "$default",
-        autoDeploy: true,
-      });
+    // Auto-deploy stage
+    new apigwv2.CfnStage(this, "ApiStage", {
+      apiId: httpApi.ref,
+      stageName: "$default",
+      autoDeploy: true,
+    });
 
-      new cdk.CfnOutput(this, "AppUrl", {
-        value: `https://${api.ref}.execute-api.${this.region}.amazonaws.com`,
-      });
-    }
-
-    // ── Outputs ────────────────────────────────────────────────────────
-    new cdk.CfnOutput(this, "EcsCluster", { value: cluster.clusterName });
-    new cdk.CfnOutput(this, "ModelProvider", { value: props.modelProvider });
-    new cdk.CfnOutput(this, "SecretArn", { value: appSecret.secretArn });
+    new cdk.CfnOutput(this, "AppUrl", {
+      value: cdk.Fn.join("", ["https://", httpApi.attrApiEndpoint]),
+    });
   }
 }
