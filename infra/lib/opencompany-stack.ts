@@ -181,9 +181,12 @@ export class OpenCompanyStack extends cdk.Stack {
             }),
       },
       healthCheck: {
+        // Mirrors the Dockerfile HEALTHCHECK — start-period covers lifespan startup
+        // (DB migrations, persona seeding) which can take up to 90s on cold start.
         command: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"],
         interval: cdk.Duration.seconds(30),
         timeout: cdk.Duration.seconds(5),
+        startPeriod: cdk.Duration.seconds(120),
         retries: 3,
       },
       portMappings: [{ containerPort: 8000 }],
