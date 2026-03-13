@@ -1,8 +1,9 @@
+import hmac
 import logging
 import os
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Security
+from fastapi import APIRouter, Depends, HTTPException, Query, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -24,12 +25,22 @@ _bearer_scheme = HTTPBearer(auto_error=False)
 
 async def verify_api_key(
     credentials: HTTPAuthorizationCredentials | None = Security(_bearer_scheme),
+    api_key_param: str | None = Query(None, alias="api_key"),
 ):
-    """Require a valid API key when API_KEY env var is set."""
+    """Require a valid API key when API_KEY env var is set.
+
+    Accepts the key as a Bearer token (Authorization header) or ?api_key= query
+    parameter (needed for EventSource / SSE which cannot set custom headers).
+    """
     api_key = os.environ.get("API_KEY")
     if not api_key:
+        logger.warning(
+            "API_KEY is not set — authentication is disabled. "
+            "Set the API_KEY environment variable to secure this endpoint."
+        )
         return  # auth disabled in dev
-    if credentials is None or credentials.credentials != api_key:
+    token = credentials.credentials if credentials else api_key_param
+    if token is None or not hmac.compare_digest(token, api_key):
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
@@ -126,7 +137,9 @@ async def api_create_ticket(body: TicketCreate, session: AsyncSession = Depends(
 
 class TicketPatch(BaseModel):
     assigned_to: str | None = None
-    status: str | None = None
+    status: (
+        Literal["open", "assigned", "in_progress", "review", "done", "rejected", "closed"] | None
+    ) = None
 
 
 @router.patch(
