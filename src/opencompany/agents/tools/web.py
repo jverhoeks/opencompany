@@ -1,9 +1,25 @@
 import html
+import ipaddress
 import os
 import re
+import socket
+import urllib.parse
 import urllib.request
 
 from strands import tool
+
+
+def _is_internal_ip(hostname: str) -> bool:
+    """Resolve hostname and return True if it points to an internal/private IP."""
+    try:
+        addrinfos = socket.getaddrinfo(hostname, None)
+    except socket.gaierror as err:
+        raise ValueError(f"Could not resolve hostname: {hostname}") from err
+    for addrinfo in addrinfos:
+        ip = ipaddress.ip_address(addrinfo[4][0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+            return True
+    return False
 
 
 @tool
@@ -17,6 +33,15 @@ def web_fetch(url: str, max_chars: int = 5000) -> str:
     if not url.startswith(("http://", "https://")):
         return "Error: URL must start with http:// or https://"
     try:
+        parsed = urllib.parse.urlparse(url)
+        hostname = parsed.hostname
+        if not hostname:
+            return "Error: Could not extract hostname from URL"
+        try:
+            if _is_internal_ip(hostname):
+                return "Error: Access to internal network addresses is blocked"
+        except ValueError as e:
+            return f"Error: {e}"
         req = urllib.request.Request(url, headers={"User-Agent": "OpenCompany/1.0"})
         with urllib.request.urlopen(req, timeout=15) as resp:
             raw = resp.read().decode("utf-8", errors="replace")

@@ -417,9 +417,51 @@ body::before {
 .md-content table { border-collapse: collapse; width: 100%; margin: 6px 0; font-size: 11px; }
 .md-content th, .md-content td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; }
 .md-content th { background: var(--bg-card); color: var(--text-bright); font-weight: 600; }
+/* ── Login overlay ──────────────────────────────── */
+#loginOverlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(6,8,15,.92); backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center;
+}
+#loginOverlay.hidden { display: none; }
+.login-box {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 12px; padding: 36px 40px; width: 360px;
+  display: flex; flex-direction: column; gap: 20px;
+  box-shadow: 0 0 40px rgba(0,212,255,.08);
+}
+.login-box h2 {
+  font-family: 'Orbitron', sans-serif; font-size: 16px;
+  color: var(--cyan); letter-spacing: 2px; text-align: center;
+}
+.login-box p { font-size: 12px; color: var(--text-dim); text-align: center; line-height: 1.5; }
+.login-box input {
+  background: var(--bg-deep); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text-bright); font-family: 'JetBrains Mono', monospace;
+  font-size: 13px; padding: 10px 14px; outline: none; width: 100%;
+}
+.login-box input:focus { border-color: var(--cyan); }
+.login-box button {
+  background: var(--cyan); color: var(--bg-deep); border: none;
+  border-radius: 6px; font-family: 'Orbitron', sans-serif; font-size: 12px;
+  font-weight: 700; letter-spacing: 1px; padding: 11px; cursor: pointer;
+  transition: opacity .15s;
+}
+.login-box button:hover { opacity: .85; }
+.login-error { color: #ff4444; font-size: 11px; text-align: center; min-height: 16px; }
 </style>
 </head>
 <body>
+<!-- Login overlay (shown when API key is required) -->
+<div id="loginOverlay" class="hidden">
+  <div class="login-box">
+    <h2>CONTROL TOWER</h2>
+    <p>Enter the API key to access the dashboard.</p>
+    <input id="loginKey" type="password" placeholder="API key" autocomplete="current-password" />
+    <button id="loginBtn">UNLOCK</button>
+    <div class="login-error" id="loginError"></div>
+  </div>
+</div>
 <div class="shell">
   <!-- Header -->
   <header class="header">
@@ -498,6 +540,72 @@ body::before {
 
   function clearChildren(node) {
     while (node.firstChild) node.removeChild(node.firstChild);
+  }
+
+  // ── Auth ────────────────────────────────────────
+  let API_KEY = (localStorage.getItem('oc_api_key') || '').trim();
+
+  function apiFetch(url, opts = {}) {
+    const headers = { Authorization: 'Bearer ' + API_KEY, ...(opts.headers || {}) };
+    return fetch(url, { ...opts, headers });
+  }
+
+  // Safe JSON parse — returns null on any error instead of throwing.
+  async function safeJson(res) {
+    try { return await res.json(); } catch { return null; }
+  }
+
+  // Re-show the login overlay (called when a 401 is received after login).
+  function handleUnauthorized() {
+    localStorage.removeItem('oc_api_key');
+    API_KEY = '';
+    const overlay = document.getElementById('loginOverlay');
+    const errEl   = document.getElementById('loginError');
+    errEl.textContent = 'Session expired — please re-enter the API key.';
+    overlay.classList.remove('hidden');
+  }
+
+  // Check if auth is required, show login overlay if so.
+  async function initAuth() {
+    // First request: if 401 → auth required; if ok → no auth needed.
+    const probe = await fetch('/api/dashboard/overview', {
+      headers: API_KEY ? { Authorization: 'Bearer ' + API_KEY } : {},
+    });
+    if (probe.ok) return; // either no auth or key already correct
+    if (probe.status !== 401) return; // unexpected error, proceed anyway
+
+    // Need a key — show overlay
+    const overlay = document.getElementById('loginOverlay');
+    const input   = document.getElementById('loginKey');
+    const btn     = document.getElementById('loginBtn');
+    const errEl   = document.getElementById('loginError');
+
+    overlay.classList.remove('hidden');
+    input.focus();
+
+    await new Promise(resolve => {
+      async function attempt() {
+        const key = input.value.trim();
+        if (!key) { errEl.textContent = 'Please enter a key.'; return; }
+        errEl.textContent = '';
+        btn.disabled = true;
+        const res = await fetch('/api/dashboard/overview', {
+          headers: { Authorization: 'Bearer ' + key },
+        });
+        btn.disabled = false;
+        if (res.ok) {
+          API_KEY = key;
+          localStorage.setItem('oc_api_key', key);
+          overlay.classList.add('hidden');
+          resolve();
+        } else {
+          errEl.textContent = 'Invalid key — try again.';
+          input.select();
+        }
+      }
+      btn.addEventListener('click', attempt);
+      input.addEventListener('keydown', e => { if (e.key === 'Enter') attempt(); });
+    });
   }
 
   // ── Markdown renderer ────────────────────────────
@@ -861,7 +969,7 @@ body::before {
     try {
       const body = { assigned_to: personaId };
       if (!personaId) body.status = 'open';
-      await fetch(`/api/tickets/${ticketId}`, {
+      await apiFetch(`/api/tickets/${ticketId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -1132,13 +1240,14 @@ body::before {
     typingEl.classList.add('visible');
 
     try {
-      const res = await fetch('/api/chat', {
+      const res = await apiFetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ persona_id: personaId, message: message }),
       });
-      const data = await res.json();
-      addChatMessage(personaName, data.response || data.detail || 'No response', false);
+      if (res.status === 401) { handleUnauthorized(); return; }
+      const data = await safeJson(res);
+      addChatMessage(personaName, data?.response || data?.detail || 'No response', false);
     } catch (err) {
       addChatMessage('System', 'Error: ' + err.message, false);
     } finally {
@@ -1196,9 +1305,11 @@ body::before {
 
   async function poll() {
     try {
-      const res = await fetch('/api/dashboard/overview');
+      const res = await apiFetch('/api/dashboard/overview');
+      if (res.status === 401) { handleUnauthorized(); return; }
       if (!res.ok) throw new Error('HTTP ' + res.status);
-      applyState(await res.json());
+      const data = await safeJson(res);
+      if (data && data.personas) applyState(data);
     } catch (err) {
       connected = false;
       statusDot.style.background = 'var(--red)';
@@ -1218,10 +1329,12 @@ body::before {
 
   // ── SSE (primary) ────────────────────────────────
   function connectSSE() {
-    const evtSource = new EventSource('/api/dashboard/stream');
+    const evtSource = new EventSource('/api/dashboard/stream?api_key=' + encodeURIComponent(API_KEY));
     evtSource.onmessage = function (event) {
-      stopPolling();
-      applyState(JSON.parse(event.data));
+      try {
+        const data = JSON.parse(event.data);
+        if (data && data.personas) { stopPolling(); applyState(data); }
+      } catch { /* ignore malformed SSE frame */ }
     };
     evtSource.onerror = function () {
       evtSource.close();
@@ -1241,9 +1354,11 @@ body::before {
 
   async function loadOverseerMessages() {
     try {
-      const res = await fetch('/api/overseer/messages');
+      const res = await apiFetch('/api/overseer/messages');
+      if (res.status === 401) { handleUnauthorized(); return; }
       if (!res.ok) return;
-      overseerMessages = await res.json();
+      const data = await safeJson(res);
+      if (Array.isArray(data)) overseerMessages = data;
       renderOverseer();
     } catch (e) { /* ignore */ }
   }
@@ -1291,7 +1406,7 @@ body::before {
           if (!reply) return;
           btn.disabled = true;
           try {
-            await fetch('/api/overseer/messages/' + m.id + '/reply', {
+            await apiFetch('/api/overseer/messages/' + m.id + '/reply', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ reply: reply }),
@@ -1308,15 +1423,11 @@ body::before {
     });
   }
 
-  // Load overseer messages periodically
-  setInterval(loadOverseerMessages, 5000);
-  loadOverseerMessages();
-
   // ── Reset button ─────────────────────────────────
   document.getElementById('resetBtn').addEventListener('click', async () => {
     if (!confirm('This will delete ALL data (personas, tickets, logs) and start fresh. Continue?')) return;
     try {
-      const res = await fetch('/api/reset', { method: 'POST' });
+      const res = await apiFetch('/api/reset', { method: 'POST' });
       if (!res.ok) throw new Error('Reset failed: HTTP ' + res.status);
       // Clear in-memory state
       Object.keys(chatHistories).forEach(k => delete chatHistories[k]);
@@ -1330,9 +1441,13 @@ body::before {
     }
   });
 
-  // Initial load via poll, then switch to SSE
-  poll();
-  connectSSE();
+  // Initial load: check auth first, then start polling + SSE
+  initAuth().then(() => {
+    poll();
+    connectSSE();
+    setInterval(loadOverseerMessages, 5000);
+    loadOverseerMessages();
+  });
 })();
 </script>
 </body>
