@@ -34,6 +34,18 @@ export interface OpenCompanyStackProps extends cdk.StackProps {
   modelProvider?: ModelProvider;
 }
 
+// Bedrock model IDs per provider choice
+const BEDROCK_MODELS: Record<string, { modelId: string; envModelId: string }> = {
+  "bedrock-anthropic": {
+    modelId: "us.anthropic.claude-sonnet-4-20250514-v1:0",
+    envModelId: "us.anthropic.claude-sonnet-4-20250514-v1:0",
+  },
+  "bedrock-nova": {
+    modelId: "amazon.nova-pro-v1:0",
+    envModelId: "amazon.nova-pro-v1:0",
+  },
+};
+
 export class OpenCompanyStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: OpenCompanyStackProps) {
     super(scope, id, props);
@@ -46,7 +58,7 @@ export class OpenCompanyStack extends cdk.Stack {
     // subnets; RDS in isolated subnets reachable via SG only).
     const vpc = new ec2.Vpc(this, "Vpc", {
       maxAzs: 2,
-      natGateways: 0,
+      natGateways: 0, // keep costs low — Fargate in public subnet
       subnetConfiguration: [
         { name: "Public", subnetType: ec2.SubnetType.PUBLIC, cidrMask: 24 },
         { name: "Isolated", subnetType: ec2.SubnetType.PRIVATE_ISOLATED, cidrMask: 24 },
