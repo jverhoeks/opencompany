@@ -54,15 +54,19 @@ def test_register_tool():
 # ---------------------------------------------------------------------------
 # get_model
 # ---------------------------------------------------------------------------
-def test_get_model_uses_env(monkeypatch):
-    """get_model passes env vars and model_id to LiteLLMModel."""
+def test_get_model_uses_env_litellm(monkeypatch):
+    """get_model passes env vars and model_id to LiteLLMModel when provider=litellm."""
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("OPENAI_API_BASE", "http://localhost:4000")
     monkeypatch.setenv("LITELLM_MODEL_ID", "gpt-test")
 
+    mock_cfg = MagicMock()
+    mock_cfg.model_provider = "litellm"
+    mock_cfg.default_model = ""
+
     with (
         patch("strands.models.litellm.LiteLLMModel") as MockModel,
-        patch("opencompany.company.config.load_company_config", side_effect=FileNotFoundError),
+        patch("opencompany.company.config.load_company_config", return_value=mock_cfg),
     ):
         from opencompany.agents.runner import get_model
 
@@ -77,12 +81,58 @@ def test_get_model_explicit_model_id(monkeypatch):
     """get_model uses the explicit model_id over env var."""
     monkeypatch.setenv("LITELLM_MODEL_ID", "gpt-env")
 
-    with patch("strands.models.litellm.LiteLLMModel") as MockModel:
+    mock_cfg = MagicMock()
+    mock_cfg.model_provider = "litellm"
+    mock_cfg.default_model = ""
+
+    with (
+        patch("strands.models.litellm.LiteLLMModel") as MockModel,
+        patch("opencompany.company.config.load_company_config", return_value=mock_cfg),
+    ):
         from opencompany.agents.runner import get_model
 
         get_model("gpt-explicit")
         call_kwargs = MockModel.call_args[1]
         assert call_kwargs["model_id"] == "gpt-explicit"
+
+
+def test_get_model_bedrock_default(monkeypatch):
+    """get_model defaults to BedrockModel when no provider is set."""
+    monkeypatch.delenv("MODEL_PROVIDER", raising=False)
+    monkeypatch.setenv("AWS_REGION", "us-west-2")
+
+    with (
+        patch("strands.models.BedrockModel") as MockBedrock,
+        patch("boto3.Session") as MockSession,
+        patch("opencompany.company.config.load_company_config", side_effect=FileNotFoundError),
+    ):
+        from opencompany.agents.runner import get_model
+
+        get_model()
+        MockBedrock.assert_called_once()
+        call_kwargs = MockBedrock.call_args[1]
+        assert "anthropic" in call_kwargs["model_id"]
+        MockSession.assert_called_once_with(region_name="us-west-2")
+
+
+def test_get_model_bedrock_explicit(monkeypatch):
+    """get_model uses explicit model_id with Bedrock provider."""
+    monkeypatch.delenv("AWS_REGION", raising=False)
+
+    mock_cfg = MagicMock()
+    mock_cfg.model_provider = "bedrock"
+    mock_cfg.default_model = ""
+    mock_cfg.bedrock_region = ""
+
+    with (
+        patch("strands.models.BedrockModel") as MockBedrock,
+        patch("opencompany.company.config.load_company_config", return_value=mock_cfg),
+    ):
+        from opencompany.agents.runner import get_model
+
+        get_model("us.anthropic.claude-haiku-3-20241022-v1:0")
+        call_kwargs = MockBedrock.call_args[1]
+        assert call_kwargs["model_id"] == "us.anthropic.claude-haiku-3-20241022-v1:0"
 
 
 # ---------------------------------------------------------------------------

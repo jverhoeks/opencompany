@@ -2,6 +2,8 @@
 .github
 tests
 workspaces
+infra
+docs
 .env
 .env.*
 __pycache__
@@ -11,3 +13,4 @@ __pycache__
 .venv
 .mypy_cache
 *.egg-info
+*.md

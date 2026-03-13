@@ -1,24 +1,53 @@
-FROM python:3.13-slim
+# ── Build stage ─────────────────────────────────────────────────────────────
+FROM python:3.13-slim AS builder
+
+# Pin uv version for reproducible builds
+COPY --from=ghcr.io/astral-sh/uv:0.6 /uv /usr/local/bin/uv
 
 WORKDIR /app
 
+# Copy all build inputs (pyproject needs src/ to build the local package wheel)
+COPY pyproject.toml uv.lock alembic.ini ./
+COPY src/ src/
+
+RUN uv sync --frozen --no-dev --no-cache --compile-bytecode
+
+# ── Runtime stage ────────────────────────────────────────────────────────────
+FROM python:3.13-slim AS runtime
+
+# Python tuning: no .pyc rewrites, unbuffered stdout for clean Docker logs
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/app/.venv/bin:$PATH"
+
+WORKDIR /app
+
+# Only runtime system dep: curl (used by HEALTHCHECK)
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+# Non-root user — consistent UID for file permission predictability
+RUN adduser --disabled-password --gecos '' --uid 1001 appuser
 
-COPY pyproject.toml uv.lock alembic.ini ./
-COPY src/ src/
-COPY config/ config/
-COPY migrations/ migrations/
+# Copy virtualenv from builder — no build tools in the final image
+COPY --from=builder --chown=appuser:appuser /app/.venv .venv
 
-RUN uv sync --frozen --no-dev
+# Copy application files (owned by appuser)
+COPY --chown=appuser:appuser alembic.ini ./
+COPY --chown=appuser:appuser src/ src/
+COPY --chown=appuser:appuser config/ config/
+COPY --chown=appuser:appuser migrations/ migrations/
 
-ENV PATH="/app/.venv/bin:$PATH"
+# Persistent workspace volume — agent working directories
+RUN mkdir -p workspaces && chown appuser:appuser workspaces
+VOLUME ["/app/workspaces"]
 
-RUN adduser --disabled-password --gecos '' appuser
 USER appuser
 
-HEALTHCHECK --interval=30s --timeout=5s CMD curl -f http://localhost:8000/health || exit 1
+# Health check — start-period covers the full lifespan startup (DB migrations,
+# persona seeding, etc.) which can take up to 90s on cold start.
+# Returns 200 when both DB and Redis are reachable, 503 otherwise.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
 
 CMD ["uvicorn", "opencompany.main:app", "--host", "0.0.0.0", "--port", "8000"]

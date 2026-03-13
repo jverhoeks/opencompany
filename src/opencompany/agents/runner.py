@@ -10,10 +10,12 @@ import re
 from typing import TYPE_CHECKING
 
 from opencompany.agents.prompts import build_system_prompt
+from opencompany.company.trust import filter_tools_by_tier, get_trust_tier
 from opencompany.models.db import Persona
 
 if TYPE_CHECKING:
     from strands import Agent
+    from strands.models import BedrockModel
     from strands.models.litellm import LiteLLMModel
 
 logger = logging.getLogger(__name__)
@@ -30,9 +32,20 @@ def register_tool(name: str, func):
     _TOOL_REGISTRY[name] = func
 
 
-def get_model(model_id: str | None = None) -> LiteLLMModel:
-    from strands.models.litellm import LiteLLMModel
+def _resolve_provider() -> str:
+    """Resolve model provider: company.yaml → MODEL_PROVIDER env → default 'bedrock'."""
+    try:
+        from opencompany.company.config import load_company_config
 
+        provider = load_company_config().model_provider
+        if provider:
+            return provider.lower()
+    except Exception:
+        pass
+    return os.environ.get("MODEL_PROVIDER", "bedrock").lower()
+
+
+def get_model(model_id: str | None = None) -> LiteLLMModel | BedrockModel:
     resolved = model_id
     if not resolved:
         try:
@@ -41,17 +54,49 @@ def get_model(model_id: str | None = None) -> LiteLLMModel:
             resolved = load_company_config().default_model or None
         except Exception:
             pass
-    if not resolved:
-        resolved = os.environ.get("LITELLM_MODEL_ID") or "azure/gpt-5"
-    logger.debug("Model resolved: requested=%s → using=%s", model_id, resolved)
-    return LiteLLMModel(
-        client_args={
-            "api_key": os.environ.get("OPENAI_API_KEY", ""),
-            "api_base": os.environ.get("OPENAI_API_BASE", ""),
-            "use_litellm_proxy": True,
-        },
-        model_id=resolved,
-    )
+
+    provider = _resolve_provider()
+
+    if provider == "bedrock":
+        import boto3
+        from strands.models import BedrockModel  # noqa: F811
+
+        if not resolved:
+            resolved = os.environ.get(
+                "BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-20250514-v1:0"
+            )
+        region = os.environ.get("AWS_REGION", "")
+        if not region:
+            try:
+                from opencompany.company.config import load_company_config
+
+                region = load_company_config().bedrock_region
+            except Exception:
+                pass
+        logger.debug(
+            "Bedrock model resolved: requested=%s → using=%s region=%s",
+            model_id,
+            resolved,
+            region,
+        )
+        kwargs: dict = {"model_id": resolved}
+        if region:
+            kwargs["boto_session"] = boto3.Session(region_name=region)
+        return BedrockModel(**kwargs)
+    else:
+        from strands.models.litellm import LiteLLMModel  # noqa: F811
+
+        if not resolved:
+            resolved = os.environ.get("LITELLM_MODEL_ID") or "azure/gpt-5"
+        logger.debug("LiteLLM model resolved: requested=%s → using=%s", model_id, resolved)
+        return LiteLLMModel(
+            client_args={
+                "api_key": os.environ.get("OPENAI_API_KEY", ""),
+                "api_base": os.environ.get("OPENAI_API_BASE", ""),
+                "use_litellm_proxy": True,
+            },
+            model_id=resolved,
+        )
 
 
 def _bind_persona_id(tool_func, persona_id: str):
@@ -94,9 +139,16 @@ def create_agent(
     from strands import Agent  # noqa: F811
 
     registry = tools if tools is not None else _TOOL_REGISTRY
+
+    # Filter tool names by persona trust tier before resolving
+    tier = get_trust_tier(persona)
+    allowed_tools, denied_tools = filter_tools_by_tier(persona.tools, tier)
+    if denied_tools:
+        logger.info("Persona %s (tier %s): denied tools %s", persona.id, tier, denied_tools)
+
     resolved_tools = []
     missing_tools = []
-    for tool_name in persona.tools:
+    for tool_name in allowed_tools:
         if tool_name in registry:
             resolved_tools.append(_bind_persona_id(registry[tool_name], persona.id))
         else:

@@ -14,10 +14,14 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-DATABASE_URL = os.environ.get(
-    "DATABASE_URL",
-    "postgresql+asyncpg://opencompany:opencompany@localhost:5432/opencompany",
-)
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+if not DATABASE_URL:
+    _host = os.environ.get("DB_HOST", "localhost")
+    _port = os.environ.get("DB_PORT", "5432")
+    _user = os.environ.get("DB_USER", "opencompany")
+    _pass = os.environ.get("DB_PASSWORD", "opencompany")
+    _name = os.environ.get("DB_NAME", "opencompany")
+    DATABASE_URL = f"postgresql+asyncpg://{_user}:{_pass}@{_host}:{_port}/{_name}"
 config.set_main_option("sqlalchemy.url", DATABASE_URL)
 
 target_metadata = Base.metadata

@@ -9,7 +9,7 @@ Virtual AI company — autonomous agent personas coordinating via a task board.
 - **SQLAlchemy 2 (async)** + **asyncpg** — Postgres models
 - **Redis** — event bus (`opencompany.events.bus`)
 - **APScheduler** — periodic scheduling (sweep, CEO kickoff, heartbeat)
-- **Strands Agents** + **LiteLLM** — agent runtime
+- **Strands Agents** + **Bedrock** (default) or **LiteLLM** — agent runtime
 - **python-telegram-bot** — Telegram channel adapter
 
 ## Project layout
@@ -24,6 +24,7 @@ src/opencompany/
   gateway/           # FastAPI API + dashboard + Telegram adapter
 tests/               # pytest tests (143 tests, 61% coverage)
 config/company.yaml  # org chart, roles, personas, personalities
+infra/               # AWS CDK stack (ECS Fargate, RDS, Bedrock IAM)
 ```
 
 ## Commands
@@ -45,6 +46,7 @@ uv run ruff format .            # format
 - **Budget**: per-persona daily token limits tracked in DB
 - **Heartbeat**: idle personas autonomously check in on configurable interval
 - **Routing**: hierarchical (CEO→PM→Lead→Solver), dictator, or holacracy org styles
+- **Model provider**: configurable via `model_provider` in company.yaml → `MODEL_PROVIDER` env → default `bedrock`
 
 ## Conventions
 

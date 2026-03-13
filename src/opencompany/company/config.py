@@ -19,6 +19,8 @@ class CompanyConfig:
     roles: dict[str, dict[str, Any]]
     personas: dict[str, dict[str, Any]]
     default_model: str = ""
+    model_provider: str = ""
+    bedrock_region: str = ""
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
 
@@ -74,6 +76,8 @@ def load_company_config(path: str | None = None) -> CompanyConfig:
         roles=raw.get("roles", {}),
         personas=raw.get("personas", {}) or {},
         default_model=raw.get("default_model", ""),
+        model_provider=raw.get("model_provider", ""),
+        bedrock_region=raw.get("bedrock_region", ""),
         raw=raw,
     )
 

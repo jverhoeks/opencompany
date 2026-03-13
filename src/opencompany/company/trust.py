@@ -15,6 +15,7 @@ TOOL_TIER_REQUIREMENTS: dict[str, str] = {
     "hire_persona": "full",
     "fire_persona": "full",
     "create_role": "full",
+    "run_script": "full",
     "contact_overseer": "lead",
     # Lead tier+
     "create_ticket": "lead",
