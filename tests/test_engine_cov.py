@@ -382,17 +382,17 @@ async def test_spawn_persona_task_error_sets_blocked(db_engine):
 
 
 # ---------------------------------------------------------------------------
-# _greedy_pickup
+# _on_persona_idle (event-driven scheduler, replaces _greedy_pickup)
 # ---------------------------------------------------------------------------
-async def test_greedy_pickup_finds_matching_ticket(db_engine):
-    """Greedy pickup routes the best matching open ticket."""
+async def test_on_persona_idle_claims_ticket(db_engine):
+    """_on_persona_idle claims the best matching open ticket for a solver."""
     factory = async_sessionmaker(db_engine, expire_on_commit=False)
 
     async with factory() as session:
         session.add(
             Persona(
-                id="greedy-dev",
-                name="Greedy Dev",
+                id="idle-dev",
+                name="Idle Dev",
                 role="Dev",
                 type="solver",
                 skills=["python"],
@@ -415,26 +415,19 @@ async def test_greedy_pickup_finds_matching_ticket(db_engine):
         patch("opencompany.company.engine.async_session", factory),
         patch("opencompany.company.taskboard.async_session", factory),
         patch("opencompany.company.engine.run_persona", new_callable=AsyncMock),
-        patch(
-            "opencompany.company.engine.load_company_config",
-            return_value=_TEST_CONFIG,
-        ),
     ):
-        from opencompany.company.engine import _greedy_pickup
+        from opencompany.company.engine import _on_persona_idle
 
-        async with factory() as session:
-            persona = await session.get(Persona, "greedy-dev")
-
-        await _greedy_pickup(persona)
+        await _on_persona_idle("idle-dev")
 
     async with factory() as session:
         ticket = await session.get(Ticket, ticket_id)
-        assert ticket.assigned_to == "greedy-dev"
+        assert ticket.assigned_to == "idle-dev"
         assert ticket.status == "assigned"
 
 
-async def test_greedy_pickup_no_orphans(db_engine):
-    """Greedy pickup does nothing when no open tickets exist."""
+async def test_on_persona_idle_no_tickets(db_engine):
+    """_on_persona_idle does nothing when no open tickets exist."""
     factory = async_sessionmaker(db_engine, expire_on_commit=False)
 
     async with factory() as session:
@@ -454,33 +447,35 @@ async def test_greedy_pickup_no_orphans(db_engine):
     with (
         patch("opencompany.company.engine.async_session", factory),
         patch("opencompany.company.taskboard.async_session", factory),
-        patch("opencompany.company.engine.load_company_config", return_value=_TEST_CONFIG),
     ):
-        from opencompany.company.engine import _greedy_pickup
+        from opencompany.company.engine import _on_persona_idle
 
-        async with factory() as session:
-            persona = await session.get(Persona, "idle-dev")
-
-        await _greedy_pickup(persona)
-
-    # No open tickets → claim_next returns None → no task spawned
+        # Should not raise, no task spawned
+        await _on_persona_idle("idle-dev")
 
 
-async def test_greedy_pickup_no_config():
-    """Greedy pickup exits early when no company config exists."""
-    with patch(
-        "opencompany.company.engine.load_company_config",
-        side_effect=FileNotFoundError,
-    ):
-        from opencompany.company.engine import _greedy_pickup
+async def test_on_persona_idle_inactive_persona(db_engine):
+    """_on_persona_idle does nothing for inactive personas."""
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
 
-        persona = MagicMock()
-        persona.type = "solver"
-        persona.picks_up = ["backend"]
-        persona.skills = ["python"]
+    async with factory() as session:
+        session.add(
+            Persona(
+                id="fired-dev",
+                name="Fired Dev",
+                role="Dev",
+                type="solver",
+                status="fired",
+                backstory="Gone.",
+            )
+        )
+        await session.commit()
+
+    with patch("opencompany.company.engine.async_session", factory):
+        from opencompany.company.engine import _on_persona_idle
 
         # Should not raise
-        await _greedy_pickup(persona)
+        await _on_persona_idle("fired-dev")
 
 
 # ---------------------------------------------------------------------------

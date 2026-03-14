@@ -178,6 +178,73 @@ async def _expire_stale_assignments_job():
         logger.exception("Stale assignment expiry job failed")
 
 
+async def snapshot_company(trigger: str = "interval") -> None:
+    """Capture all PersonaConfigs + ticket stats to CompanySnapshot."""
+    try:
+        from sqlalchemy import func, select
+
+        from opencompany.models.db import CompanySnapshot, PersonaConfig, Ticket
+        from opencompany.models.engine import async_session
+
+        async with async_session() as session:
+            configs = (await session.execute(select(PersonaConfig))).scalars().all()
+            if not configs:
+                return  # nothing to snapshot
+
+            # Gather ticket stats
+            open_count = (
+                await session.scalar(select(func.count(Ticket.id)).where(Ticket.status == "open"))
+                or 0
+            )
+            done_count = (
+                await session.scalar(select(func.count(Ticket.id)).where(Ticket.status == "done"))
+                or 0
+            )
+            in_progress_count = (
+                await session.scalar(
+                    select(func.count(Ticket.id)).where(Ticket.status == "in_progress")
+                )
+                or 0
+            )
+
+            snapshot_data = {
+                "personas": [
+                    {
+                        "id": c.id,
+                        "name": c.name,
+                        "role": c.role,
+                        "trust": c.trust,
+                        "skills": c.skills,
+                        "budget_tokens_daily": c.budget_tokens_daily,
+                    }
+                    for c in configs
+                ],
+                "tickets": {
+                    "open": open_count,
+                    "in_progress": in_progress_count,
+                    "done": done_count,
+                },
+            }
+
+            session.add(
+                CompanySnapshot(
+                    trigger=trigger,
+                    snapshot=snapshot_data,
+                )
+            )
+            await session.commit()
+            logger.info("Company snapshot saved [%s]", trigger)
+    except Exception:
+        logger.exception("Company snapshot failed")
+
+
+_SNAPSHOT_INTERVAL = int(os.environ.get("SNAPSHOT_INTERVAL_SECONDS", "300"))
+
+
+async def _snapshot_job():
+    await snapshot_company("interval")
+
+
 def start_scheduler():
     scheduler.add_job(_sweep_job, "interval", seconds=30, id="sweep_unassigned")
     scheduler.add_job(
@@ -186,6 +253,14 @@ def start_scheduler():
         seconds=120,
         id="expire_stale_assignments",
     )
+    if _SNAPSHOT_INTERVAL > 0:
+        scheduler.add_job(
+            _snapshot_job,
+            "interval",
+            seconds=_SNAPSHOT_INTERVAL,
+            id="company_snapshot",
+        )
+        logger.info("Company snapshot enabled: every %d seconds", _SNAPSHOT_INTERVAL)
 
     ceo_interval = int(os.environ.get("CEO_KICKOFF_INTERVAL_SECONDS", "0"))
     if ceo_interval > 0:

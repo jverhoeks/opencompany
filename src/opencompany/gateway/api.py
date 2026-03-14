@@ -6,12 +6,13 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
+from sqlalchemy import func as sa_func
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from opencompany.agents.runner import run_persona
 from opencompany.events.bus import publish
-from opencompany.models.db import Persona, Ticket
+from opencompany.models.db import Persona, Ticket, WorkLog
 from opencompany.models.engine import get_session
 
 logger = logging.getLogger(__name__)
@@ -231,6 +232,196 @@ async def api_reset_all_budgets():
 
     count = await reset_all_budgets()
     return {"status": "ok", "reset_count": count}
+
+
+# --- Persona config endpoints ---
+
+
+class PersonaConfigOut(BaseModel):
+    id: str
+    name: str
+    role: str
+    trust: str
+    skills: list
+    budget_tokens_daily: int
+    instructions: str
+    personality: dict
+    updated_by: str
+
+    model_config = {"from_attributes": True}
+
+
+class PersonaConfigPatch(BaseModel):
+    instructions: str | None = None
+    budget_tokens_daily: int | None = None
+    personality: dict | None = None
+    skills: list[str] | None = None
+
+
+@router.get(
+    "/config/personas",
+    response_model=list[PersonaConfigOut],
+    dependencies=[Depends(verify_api_key)],
+)
+async def api_list_persona_configs(
+    session: AsyncSession = Depends(get_session),
+):
+    from opencompany.models.db import PersonaConfig
+
+    result = await session.execute(select(PersonaConfig))
+    return result.scalars().all()
+
+
+@router.patch(
+    "/config/personas/{persona_id}",
+    response_model=PersonaConfigOut,
+    dependencies=[Depends(verify_api_key)],
+)
+async def api_patch_persona_config(
+    persona_id: str,
+    body: PersonaConfigPatch,
+    session: AsyncSession = Depends(get_session),
+):
+    from opencompany.models.db import PersonaConfig
+
+    config = await session.get(PersonaConfig, persona_id)
+    if not config:
+        raise HTTPException(status_code=404, detail="PersonaConfig not found")
+    if body.instructions is not None:
+        config.instructions = body.instructions
+    if body.budget_tokens_daily is not None:
+        config.budget_tokens_daily = body.budget_tokens_daily
+    if body.personality is not None:
+        config.personality = body.personality
+    if body.skills is not None:
+        config.skills = body.skills
+    config.updated_by = "overseer"
+    await session.commit()
+    await session.refresh(config)
+    return config
+
+
+@router.post("/config/export", dependencies=[Depends(verify_api_key)])
+async def api_export_config(session: AsyncSession = Depends(get_session)):
+    """Dump current DB persona configs back to a timestamped YAML file."""
+    from datetime import UTC, datetime
+    from pathlib import Path
+
+    import yaml
+
+    from opencompany.models.db import PersonaConfig
+
+    result = await session.execute(select(PersonaConfig))
+    configs = result.scalars().all()
+
+    data = {
+        "personas": {
+            c.id: {
+                "name": c.name,
+                "role": c.role,
+                "trust": c.trust,
+                "skills": c.skills,
+                "budget_tokens_daily": c.budget_tokens_daily,
+                "instructions": c.instructions,
+                "personality": c.personality,
+            }
+            for c in configs
+        }
+    }
+    ts = datetime.now(UTC).strftime("%Y%m%d-%H%M")
+    out = Path(f"config/company-export-{ts}.yaml")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False))
+    return {"exported_to": str(out)}
+
+
+# --- Soul history endpoints ---
+
+
+@router.get("/soul", dependencies=[Depends(verify_api_key)])
+async def api_get_soul():
+    """Return current soul.md content."""
+    from opencompany.company.soul import read_soul
+
+    return {"content": read_soul()}
+
+
+@router.get("/soul/history", dependencies=[Depends(verify_api_key)])
+async def api_soul_history(
+    limit: int = 10,
+    session: AsyncSession = Depends(get_session),
+):
+    """Return recent soul.md version history with diffs."""
+    from opencompany.models.db import SoulVersion
+
+    result = await session.execute(
+        select(SoulVersion).order_by(SoulVersion.version.desc()).limit(limit)
+    )
+    versions = result.scalars().all()
+    return [
+        {
+            "version": v.version,
+            "proposed_by": v.proposed_by,
+            "rationale": v.rationale,
+            "diff": v.diff,
+            "created_at": v.created_at.isoformat() if v.created_at else None,
+        }
+        for v in versions
+    ]
+
+
+@router.post("/soul/rollback/{version}", dependencies=[Depends(verify_api_key)])
+async def api_soul_rollback(version: int):
+    """Rollback soul.md to a specific version."""
+    from opencompany.company.soul import rollback
+
+    ok, msg = await rollback(version)
+    if not ok:
+        raise HTTPException(status_code=404, detail=msg)
+    return {"status": "ok", "message": msg}
+
+
+# --- Efficiency metrics endpoint ---
+
+
+@router.get("/metrics/efficiency", dependencies=[Depends(verify_api_key)])
+async def api_efficiency_metrics(session: AsyncSession = Depends(get_session)):
+    """Per-persona efficiency metrics: tasks completed, tokens used, avg duration."""
+    q = (
+        select(
+            Persona.id,
+            Persona.name,
+            Persona.role,
+            sa_func.count(WorkLog.id).label("tasks_completed"),
+            sa_func.sum(Ticket.tokens_in + Ticket.tokens_out).label("total_tokens"),
+            sa_func.avg(WorkLog.duration_sec).label("avg_duration_sec"),
+        )
+        .join(WorkLog, WorkLog.persona_id == Persona.id)
+        .outerjoin(Ticket, WorkLog.ticket_id == Ticket.id)
+        .where(WorkLog.action.in_(["solved", "review", "done"]))
+        .group_by(Persona.id, Persona.name, Persona.role)
+        .order_by(sa_func.sum(Ticket.tokens_in + Ticket.tokens_out).desc().nulls_last())
+    )
+    result = await session.execute(q)
+    rows = result.all()
+
+    metrics = []
+    for row in rows:
+        total_tokens = row.total_tokens or 0
+        tasks = row.tasks_completed or 0
+        metrics.append(
+            {
+                "persona_id": row.id,
+                "name": row.name,
+                "role": row.role,
+                "tasks_completed": tasks,
+                "total_tokens": total_tokens,
+                "tokens_per_task": round(total_tokens / tasks) if tasks else 0,
+                "avg_duration_sec": round(row.avg_duration_sec or 0, 1),
+            }
+        )
+
+    return metrics
 
 
 # --- Reset endpoint ---

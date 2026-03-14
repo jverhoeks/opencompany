@@ -37,10 +37,18 @@ COPY --chown=appuser:appuser alembic.ini ./
 COPY --chown=appuser:appuser src/ src/
 COPY --chown=appuser:appuser config/ config/
 COPY --chown=appuser:appuser migrations/ migrations/
+COPY --chown=appuser:appuser soul.md ./
+COPY --chown=appuser:appuser sops/ sops/
 
 # Persistent workspace volume — agent working directories
 RUN mkdir -p workspaces && chown appuser:appuser workspaces
 VOLUME ["/app/workspaces"]
+
+# OpenTelemetry: set OTEL_ENABLED=true to wrap uvicorn with OTEL auto-instrumentation
+# Requires opentelemetry-distro + opentelemetry-exporter-otlp in dependencies
+ENV OTEL_ENABLED=false \
+    OTEL_SERVICE_NAME=opencompany \
+    OTEL_EXPORTER_OTLP_ENDPOINT=""
 
 USER appuser
 
@@ -50,4 +58,7 @@ USER appuser
 HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-CMD ["uvicorn", "opencompany.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Use entrypoint script to conditionally wrap with OTEL
+COPY --chown=appuser:appuser docker-entrypoint.sh ./
+RUN chmod +x docker-entrypoint.sh
+ENTRYPOINT ["./docker-entrypoint.sh"]
