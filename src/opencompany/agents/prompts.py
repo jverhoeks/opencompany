@@ -45,6 +45,11 @@ def build_system_prompt(
     if policy_section:
         sections.append(policy_section)
 
+    # Inject soul.md operating principles (if available)
+    soul_section = _build_soul_section()
+    if soul_section:
+        sections.append(soul_section)
+
     if responsibilities:
         sections.append(f"\nRESPONSIBILITIES:\n{responsibilities}")
 
@@ -159,3 +164,17 @@ def _get_role_config(
             return config.roles[key]
 
     return {}
+
+
+def _build_soul_section() -> str:
+    """Read soul.md and format as a prompt section."""
+    try:
+        from opencompany.company.soul import read_soul
+
+        content = read_soul()
+        if not content:
+            return ""
+        return f"\nCOMPANY OPERATING PRINCIPLES:\n{content}"
+    except Exception:
+        logger.debug("Could not load soul.md", exc_info=True)
+        return ""
