@@ -24,19 +24,45 @@ src/opencompany/static/
 - Styled as cyberpunk buttons with cyan accent on active tab
 - Center panel becomes a `<div id="view-container">` that loads partials
 - SSE stream (`/api/dashboard/stream`) feeds all views — shell receives data and calls active view's `render(data)` callback
-- Each partial registers itself via a global `window.viewRegistry[name] = { init(), render(data) }` pattern
-- Tab switch: fetch partial HTML → inject into container → call `init()` → immediately `render()` with latest cached data
+- Each partial registers itself via a global `window.viewRegistry[name] = { init(), render(data), destroy() }` pattern
+  - `init()` — may return a Promise for async setup (e.g. SVG canvas creation)
+  - `render(data)` — update DOM from SSE data
+  - `destroy()` — cleanup event listeners, SVG elements, timers when switching away
+- Tab switch: call `destroy()` on previous view → fetch partial HTML → inject into container → call `init()` → immediately `render()` with latest cached data
+- If a partial fails to load (404, network error), show an error message in the view container
+- SSE reconnection: if the EventSource connection drops, auto-reconnect with exponential backoff (existing pattern in dashboard.html)
 
 ### Backend Changes
 
-- Serve view partials via existing static file serving (add `views/` subdirectory to `STATIC_DIR`)
-- New route or extend existing: `GET /static/views/{name}.html`
+**Static file serving:** Add a `StaticFiles` mount for the `static/` directory (the current dashboard only has a single hardcoded `FileResponse`). This enables serving `views/*.html` without individual routes.
+
+**SSE data additions** — add to `_get_overview_data()` persona objects:
+- `reports_to` (string, nullable) — needed for organigram hierarchy
+- `backstory` (string) — useful for persona detail view
+
+**Ticket data additions** — add to `_get_overview_data()` ticket objects:
+- `budget_tokens` (int) — needed for token usage bar on kanban cards
+
+**New API endpoints:**
+
+Roles CRUD (reads/writes `company.yaml` via existing `config.add_role()` pattern):
+- `GET /api/config/roles` — list all roles from config
+- `POST /api/config/roles` — create new role (writes to YAML)
+- `PATCH /api/config/roles/{role_id}` — edit role (writes to YAML)
+- `DELETE /api/config/roles/{role_id}` — delete role (only if no active personas use it)
+
+Soul update:
+- `POST /api/soul` — propose soul update (accepts `{content, rationale}`, calls `soul.propose_update()` internally)
+
+**Persona config patch extension** — extend existing `PATCH /api/config/personas/{id}` to also accept `name` and `role` fields (currently only supports `instructions`, `budget_tokens_daily`, `personality`, `skills`).
 
 ## View 1: Kanban Board
 
 ### Layout
 
 Horizontal swim lane columns, left to right: **Open → Assigned → In Progress → Review → Done/Closed**
+
+This is a redesign from the existing 4-column layout. The Ticket model already supports all these statuses: `open, assigned, in_progress, review, done, rejected, closed`.
 
 ### Ticket Cards
 
@@ -46,7 +72,7 @@ Each card displays:
 - Tags as small pills
 - Assigned persona avatar + name
 - Created by (small text)
-- Token usage indicator (thin bar showing tokens_in + tokens_out vs budget_tokens)
+- Token usage indicator (thin bar showing `tokens_in + tokens_out` vs `budget_tokens`)
 
 ### Interactions
 
@@ -73,7 +99,7 @@ SVG canvas with pan and zoom. Top-down hierarchy tree.
 
 ### Tree Layout
 
-- CEO at top, lines flow down via `reports_to` relationships
+- CEO at top, lines flow down via `reports_to` relationships (now included in SSE data)
 - Each level spreads horizontally
 - Simple layered layout calculated in JS (manager layer → lead layer → solver layer)
 - Connections rendered as SVG `<path>` with subtle curves
@@ -81,9 +107,9 @@ SVG canvas with pan and zoom. Top-down hierarchy tree.
 ### Nodes
 
 Each node shows:
-- Persona avatar circle (colored by type: cyan=manager, green=solver, amber=lead, purple=observer)
+- Persona avatar circle (colored by type: cyan=manager, purple=lead, amber=solver, blue=observer — distinct from activity state colors to avoid confusion)
 - Name + role title
-- Activity state indicator dot (green=working, amber=idle, red=blocked)
+- Activity state indicator dot (green=working, amber=idle, red=blocked) — small dot in corner, visually distinct from the avatar fill color
 - Active ticket count badge
 - Hover: tooltip with current ticket titles
 
@@ -92,7 +118,7 @@ Each node shows:
 - Mouse wheel → zoom in/out
 - Click + drag background → pan
 - Click node → shows persona detail in right sidebar
-- "Zoom to fit" button resets view
+- "Zoom to fit" button — floating in top-right corner of the SVG canvas
 
 ### Fired Personas
 
@@ -129,12 +155,12 @@ Top-down 2D blueprint. Dark background, thin glowing lines (cyan at 30% opacity)
 
 ### Room Assignment Logic (client-side)
 
-Based on persona type and role from SSE data:
-- `type: manager` + `role: ceo` → corner office (largest room)
-- `type: manager` + `role: hr` → adjacent to CEO
-- `type: manager` (pm, others) → mid-size offices along top row
-- `type: lead` → small offices in middle row
-- `type: solver` → desks in open floor area, side by side
+Based on `persona.role` field from SSE data:
+- `role === "ceo"` → corner office (largest room)
+- `role === "hr"` → adjacent to CEO
+- `type === "manager"` (other managers) → mid-size offices along top row
+- `type === "lead"` → small offices in middle row
+- `type === "solver"` → desks in open floor area, side by side
 
 ### Persona Display
 
@@ -149,7 +175,8 @@ Based on persona type and role from SSE data:
 - When personas are hired, desks/offices appear
 - Fired personas' desks show as empty/dimmed
 - Lead row extends if more leads hired
-- Open floor wraps desks to new rows as needed
+- Open floor wraps desks to new rows (max 8 per row, then scrollable vertically within the open floor area)
+- The entire floor plan fits within the view container; if it overflows, the container scrolls
 - No animations for now (future enhancement)
 
 ## View 4: Company Editor
@@ -157,6 +184,16 @@ Based on persona type and role from SSE data:
 ### Sub-tabs
 
 Three sub-tabs within the editor: **Personas** | **Roles** | **Soul**
+
+Sub-tabs are rendered as smaller, underlined text buttons below the main view area header — visually distinct from the main header tabs (which are full cyberpunk buttons).
+
+### Editor Feedback
+
+All editor forms share these patterns:
+- **Save button** shows loading spinner during request
+- **Success**: brief green "Saved" toast that fades after 2 seconds
+- **Error**: red toast with error message from API response
+- **Delete**: confirmation dialog ("Are you sure?") before destructive actions
 
 ### Personas Tab
 
@@ -169,12 +206,12 @@ Three sub-tabs within the editor: **Personas** | **Roles** | **Soul**
   - Personality: traits (list), communication_style (text), quirks (list), catchphrases (list)
   - Instructions (textarea)
   - Daily token budget (number)
-- Save → `PATCH /api/config/personas/{id}`
+- Save → `PATCH /api/config/personas/{id}` (extended to accept name, role)
 - Fired personas shown dimmed, not editable
 
 ### Roles Tab
 
-- List of roles from config
+- List of roles from config (loaded via `GET /api/config/roles`)
 - Edit form per role:
   - Type (dropdown: manager/lead/solver/observer)
   - Responsibilities (textarea)
@@ -184,23 +221,17 @@ Three sub-tabs within the editor: **Personas** | **Roles** | **Soul**
   - Daily token budget (number)
   - Max headcount (number)
   - Tag match (tag input)
-- New role button
-- Delete role (only if no active personas use it)
+- New role button → `POST /api/config/roles`
+- Delete role → `DELETE /api/config/roles/{role_id}` (only if no active personas use it)
+
+Roles are stored in `company.yaml` (not a DB table). The CRUD endpoints read/write YAML via the existing `config` module pattern.
 
 ### Soul Tab
 
-- Full-width markdown editor (textarea with live preview via marked.js)
-- Version history list on the side (from SoulVersion table)
-- Save → `POST /api/soul` (propose update)
+- Full-width markdown editor (textarea with live preview via marked.js, sanitized with DOMPurify)
+- Version history list on the side (from SoulVersion table via `GET /api/soul/history`)
+- Save → `POST /api/soul` with `{content, rationale}` (new endpoint)
 - Rollback button per version → `POST /api/soul/rollback/{version}`
-
-### New API Endpoints
-
-Required for the Roles sub-tab:
-- `GET /api/config/roles` — list all roles from config
-- `POST /api/config/roles` — create new role
-- `PATCH /api/config/roles/{role_id}` — edit role
-- `DELETE /api/config/roles/{role_id}` — delete role
 
 ## Shared Conventions
 
@@ -208,7 +239,7 @@ Required for the Roles sub-tab:
 - All views use existing fonts (Orbitron, Outfit, JetBrains Mono)
 - No external JS frameworks — vanilla JS only, consistent with existing dashboard
 - marked.js + DOMPurify already loaded in shell for markdown rendering
-- Responsive within the center panel area (not mobile-responsive, desktop dashboard)
+- Desktop-only (not mobile-responsive)
 
 ## Data Flow
 
@@ -224,7 +255,8 @@ For editor mutations:
 ```
 Editor form submit
   → fetch() POST/PATCH/DELETE to API
-  → API updates DB
-  → next SSE tick reflects change
-  → all views auto-update
+  → show loading spinner on save button
+  → on success: green toast, next SSE tick reflects change
+  → on error: red toast with error message
+  → all views auto-update via SSE
 ```
