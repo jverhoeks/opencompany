@@ -278,3 +278,24 @@ async def test_overview_includes_fired_personas(dashboard_app):
     data = resp.json()
     assert len(data["personas"]) == 1
     assert data["personas"][0]["status"] == "fired"
+
+
+@pytest.mark.asyncio
+async def test_overview_includes_reports_to(db_engine):
+    """Persona data in overview must include reports_to for organigram."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from opencompany.gateway.dashboard import _get_overview_data
+    from opencompany.models.db import Persona
+
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    async with factory() as session:
+        session.add(Persona(id="ceo", name="CEO", role="ceo", type="manager"))
+        session.add(Persona(id="pm", name="PM", role="pm", type="manager", reports_to="ceo"))
+        await session.commit()
+        data = await _get_overview_data(session)
+
+    pm_data = next(p for p in data["personas"] if p["id"] == "pm")
+    assert pm_data["reports_to"] == "ceo"
+    ceo_data = next(p for p in data["personas"] if p["id"] == "ceo")
+    assert ceo_data["reports_to"] is None

@@ -99,6 +99,8 @@ async def _get_overview_data(session: AsyncSession) -> dict:
                 "model_id": p.model_id,
                 "daily_token_budget": p.daily_token_budget or 0,
                 "tokens_used_today": p.tokens_used_today or 0,
+                "reports_to": p.reports_to,
+                "backstory": p.backstory,
             }
             for p in personas
         ],
@@ -115,6 +117,7 @@ async def _get_overview_data(session: AsyncSession) -> dict:
                 "result": t.result,
                 "tokens_in": t.tokens_in or 0,
                 "tokens_out": t.tokens_out or 0,
+                "budget_tokens": t.budget_tokens,
                 "created_at": t.created_at.isoformat() if t.created_at else None,
             }
             for t in tickets
