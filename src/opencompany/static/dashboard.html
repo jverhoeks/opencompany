@@ -417,6 +417,28 @@ body::before {
 .md-content table { border-collapse: collapse; width: 100%; margin: 6px 0; font-size: 11px; }
 .md-content th, .md-content td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; }
 .md-content th { background: var(--bg-card); color: var(--text-bright); font-weight: 600; }
+/* ── Tab navigation ───────────────────────────── */
+.header-tabs { display: flex; gap: 4px; }
+.tab-btn {
+  font-family: var(--font-display); font-size: 10px; letter-spacing: 1.5px;
+  text-transform: uppercase; padding: 6px 14px; border: 1px solid var(--border);
+  border-radius: 4px; background: transparent; color: var(--text-dim);
+  cursor: pointer; transition: all 0.15s;
+}
+.tab-btn:hover { background: var(--bg-hover); color: var(--text-main); }
+.tab-btn.active {
+  background: rgba(0, 229, 255, 0.1); color: var(--cyan);
+  border-color: var(--cyan); box-shadow: 0 0 8px rgba(0, 229, 255, 0.15);
+}
+.view-loading {
+  display: flex; align-items: center; justify-content: center;
+  height: 100%; color: var(--text-dim); font-family: var(--font-mono); font-size: 12px;
+}
+.view-error {
+  display: flex; align-items: center; justify-content: center;
+  height: 100%; color: var(--red); font-family: var(--font-mono); font-size: 12px;
+}
+
 /* ── Login overlay ──────────────────────────────── */
 #loginOverlay {
   position: fixed; inset: 0; z-index: 9999;
@@ -470,6 +492,12 @@ body::before {
       <h1>NovaCraft</h1>
       <span>Control Tower</span>
     </div>
+    <nav class="header-tabs">
+      <button class="tab-btn active" data-view="kanban">Kanban</button>
+      <button class="tab-btn" data-view="organigram">Organigram</button>
+      <button class="tab-btn" data-view="office">Office</button>
+      <button class="tab-btn" data-view="editor">Editor</button>
+    </nav>
     <div class="header-meta">
       <button id="resetBtn" style="font-family:var(--font-display);font-size:9px;padding:4px 12px;background:var(--red);color:#fff;border:none;border-radius:4px;cursor:pointer;letter-spacing:1px;font-weight:700;margin-right:8px;transition:opacity .15s" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">RESET</button>
       <div class="status-dot" id="statusDot"></div>
@@ -485,14 +513,10 @@ body::before {
     <div class="kpi-strip" id="kpiStrip"></div>
   </aside>
 
-  <!-- Main: Kanban board -->
-  <section class="main">
-    <div class="board-header">
-      <h2>Task Board</h2>
-      <div class="board-tabs" id="boardTabs"></div>
-    </div>
-    <div class="kanban" id="kanban"></div>
-  </section>
+  <!-- Main: View container (loaded via tab navigation) -->
+  <main class="main" id="view-container">
+    <div class="view-loading">Loading view...</div>
+  </main>
 
   <!-- Feed: Activity + Chat -->
   <aside class="feed">
@@ -692,7 +716,6 @@ body::before {
             switchChatPersona();
           }
         }
-        renderBoard();
         // Show persona detail popup
         showPersonaModal(p);
       });
@@ -780,74 +803,7 @@ body::before {
     });
   }
 
-  // ── Render: Board tabs ─────────────────────────
-  const COLUMNS = [
-    { key: 'open',        label: 'Open',        statuses: ['open'] },
-    { key: 'assigned',    label: 'Assigned',     statuses: ['assigned'] },
-    { key: 'in_progress', label: 'In Progress',  statuses: ['in_progress'] },
-    { key: 'done',        label: 'Done',         statuses: ['done', 'review'] },
-  ];
-
-  // ── Render: Kanban ─────────────────────────────
-  const kanbanEl = document.getElementById('kanban');
-  function renderBoard() {
-    clearChildren(kanbanEl);
-    COLUMNS.forEach(col => {
-      const colDiv = el('div', 'kanban-col');
-
-      // Column header
-      const hdr = el('div', 'col-header');
-      const tickets = state.tickets.filter(t =>
-        col.statuses.includes(t.status) &&
-        (activeFilter === 'all' || t.assigned_to === activeFilter || t.created_by === activeFilter)
-      );
-      hdr.appendChild(el('span', '', col.label));
-      hdr.appendChild(el('span', 'col-count', String(tickets.length)));
-      colDiv.appendChild(hdr);
-
-      if (tickets.length === 0) {
-        colDiv.appendChild(el('div', 'empty-col', 'No tickets'));
-      } else {
-        tickets.forEach(t => {
-          const card = el('div', 'ticket-card fade-in');
-
-          card.appendChild(el('div', 'ticket-title', t.title));
-
-          const meta = el('div', 'ticket-meta');
-
-          // Priority badge
-          const pBadge = el('span', 'ticket-priority ' + (t.priority || 'medium'));
-          pBadge.textContent = (t.priority || 'medium').toUpperCase();
-          meta.appendChild(pBadge);
-
-          // Tags
-          if (t.tags && t.tags.length) {
-            t.tags.slice(0, 3).forEach(tag => {
-              meta.appendChild(el('span', 'ticket-tag', tag));
-            });
-          }
-
-          // Assignee
-          if (t.assigned_to && personaMap[t.assigned_to]) {
-            meta.appendChild(el('span', 'ticket-assignee', personaMap[t.assigned_to]));
-          }
-
-          // Token count
-          const totalTokens = (t.tokens_in || 0) + (t.tokens_out || 0);
-          if (totalTokens > 0) {
-            const tk = el('span', 'ticket-tokens', formatTokens(totalTokens));
-            meta.appendChild(tk);
-          }
-
-          card.appendChild(meta);
-          card.addEventListener('click', () => showTicketModal(t));
-          colDiv.appendChild(card);
-        });
-      }
-
-      kanbanEl.appendChild(colDiv);
-    });
-  }
+  // ── Board rendering removed — now handled by kanban view partial ──
 
   // ── Ticket detail modal ─────────────────────────
   function fuzzyScore(solverTags, ticketTags) {
@@ -1287,7 +1243,6 @@ body::before {
     // Re-render
     renderTeam();
     renderKPIs();
-    renderBoard();
     renderActivity();
 
     // Update chat select when persona list changes
@@ -1333,6 +1288,10 @@ body::before {
     evtSource.onmessage = function (event) {
       try {
         const data = JSON.parse(event.data);
+        window._cachedData = data;
+        if (activeViewName && window.viewRegistry[activeViewName] && window.viewRegistry[activeViewName].render) {
+          window.viewRegistry[activeViewName].render(data);
+        }
         if (data && data.personas) { stopPolling(); applyState(data); }
       } catch { /* ignore malformed SSE frame */ }
     };
@@ -1449,6 +1408,54 @@ body::before {
     loadOverseerMessages();
   });
 })();
+
+// --- View Registry ---
+window.viewRegistry = {};
+var activeViewName = null;
+
+async function switchView(name) {
+  var container = document.getElementById('view-container');
+  if (activeViewName && window.viewRegistry[activeViewName] && window.viewRegistry[activeViewName].destroy) {
+    try { window.viewRegistry[activeViewName].destroy(); } catch(e) {}
+  }
+  document.querySelectorAll('.tab-btn').forEach(function(btn) {
+    btn.classList.toggle('active', btn.dataset.view === name);
+  });
+  container.textContent = '';
+  var loadingDiv = document.createElement('div');
+  loadingDiv.className = 'view-loading';
+  loadingDiv.textContent = 'Loading...';
+  container.appendChild(loadingDiv);
+  try {
+    var resp = await fetch('/static/views/' + encodeURIComponent(name) + '.html');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    var html = await resp.text();
+    // Load same-origin view partial HTML (trusted internal content)
+    container.innerHTML = html;  // nosec: same-origin static partial
+    container.querySelectorAll('script').forEach(function(oldScript) {
+      var newScript = document.createElement('script');
+      newScript.textContent = oldScript.textContent;
+      oldScript.replaceWith(newScript);
+    });
+    activeViewName = name;
+    if (window.viewRegistry[name] && window.viewRegistry[name].init) {
+      await window.viewRegistry[name].init();
+    }
+    if (window._cachedData && window.viewRegistry[name] && window.viewRegistry[name].render) {
+      window.viewRegistry[name].render(window._cachedData);
+    }
+  } catch (e) {
+    container.textContent = '';
+    var errDiv = document.createElement('div');
+    errDiv.className = 'view-error';
+    errDiv.textContent = 'Failed to load ' + name + ' view: ' + e.message;
+    container.appendChild(errDiv);
+  }
+}
+document.querySelectorAll('.tab-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() { switchView(btn.dataset.view); });
+});
+switchView('kanban');
 </script>
 </body>
 </html>
