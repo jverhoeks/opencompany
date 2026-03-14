@@ -213,3 +213,49 @@ def add_role(
 
     invalidate_cache()
     logger.info("Added role '%s' to %s", role_id, path)
+
+
+def update_role(
+    role_id: str,
+    updates: dict[str, Any],
+    path: str | None = None,
+) -> None:
+    """Update an existing role in company.yaml. Raises KeyError if not found."""
+    if path is None:
+        path = os.path.join("config", "company.yaml")
+
+    with open(path) as f:
+        raw = yaml.safe_load(f)
+
+    roles = raw.get("roles", {})
+    if role_id not in roles:
+        raise KeyError(f"Role '{role_id}' not found")
+
+    roles[role_id].update(updates)
+
+    with open(path, "w") as f:
+        yaml.dump(raw, f, default_flow_style=False, sort_keys=False)
+
+    invalidate_cache()
+    logger.info("Updated role '%s' in %s", role_id, path)
+
+
+def delete_role(role_id: str, path: str | None = None) -> None:
+    """Delete a role from company.yaml. Raises KeyError if not found."""
+    if path is None:
+        path = os.path.join("config", "company.yaml")
+
+    with open(path) as f:
+        raw = yaml.safe_load(f)
+
+    roles = raw.get("roles", {})
+    if role_id not in roles:
+        raise KeyError(f"Role '{role_id}' not found")
+
+    del roles[role_id]
+
+    with open(path, "w") as f:
+        yaml.dump(raw, f, default_flow_style=False, sort_keys=False)
+
+    invalidate_cache()
+    logger.info("Deleted role '%s' from %s", role_id, path)
