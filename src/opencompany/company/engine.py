@@ -28,14 +28,56 @@ async def set_persona_state(persona_id: str, state: str) -> None:
 
 
 async def handle_event(event_type: str, data: dict):
-    """Handle events from the bus."""
+    """Handle events from the bus.
+
+    Event-driven scheduler: reacts to lifecycle events immediately
+    instead of waiting for periodic sweep ticks.
+    """
     try:
         if event_type == "ticket.created":
             await _route_ticket(data["ticket_id"])
         elif event_type == "ticket.review":
             await _trigger_review(data["ticket_id"])
+        elif event_type == "persona.idle":
+            await _on_persona_idle(data["persona_id"])
+        elif event_type == "persona.blocked":
+            logger.info(
+                "Persona %s blocked (reason=%s)",
+                data.get("persona_id"),
+                data.get("reason", "unknown"),
+            )
     except Exception:
         logger.exception("Error handling event %s: %s", event_type, data)
+
+
+async def _on_persona_idle(persona_id: str) -> None:
+    """React to a persona becoming idle: immediately try to assign next ticket.
+
+    This is the core of the event-driven scheduler — assignment latency drops
+    from SWEEP_INTERVAL seconds to milliseconds.
+    """
+    async with async_session() as session:
+        persona = await session.get(Persona, persona_id)
+        if not persona or persona.status != "active":
+            return
+
+    if persona.type == "solver":
+        claimed = await claim_next(persona_id)
+        if not claimed:
+            return
+        logger.info(
+            "Event-driven pickup: %s claimed ticket #%d",
+            persona_id,
+            claimed["id"],
+        )
+        _spawn_persona_task(
+            persona,
+            _build_task_prompt_from_dict(claimed),
+            f"solve-ticket-{claimed['id']}",
+            ticket_id=claimed["id"],
+        )
+    elif persona_id == "hr":
+        await _hr_pickup()
 
 
 async def _route_ticket(ticket_id: int):
@@ -352,6 +394,10 @@ def _spawn_persona_task(persona: Persona, task: str, label: str, ticket_id: int 
                 label,
             )
             await set_persona_state(persona.id, "blocked")
+            await publish(
+                "persona.blocked",
+                {"persona_id": persona.id, "reason": "daily_budget_exhausted"},
+            )
             return
 
         # Per-task budget gate: check if ticket has enough budget left
@@ -384,13 +430,15 @@ def _spawn_persona_task(persona: Persona, task: str, label: str, ticket_id: int 
         except Exception:
             logger.exception("Background persona task %s failed", label)
             await set_persona_state(persona.id, "blocked")
+            await publish(
+                "persona.blocked",
+                {"persona_id": persona.id, "reason": "task_error"},
+            )
         else:
             await set_persona_state(persona.id, "idle")
-            # Greedy: look for next unassigned ticket
-            if persona.type == "solver":
-                await _greedy_pickup(persona)
-            elif persona.id == "hr":
-                await _hr_pickup()
+            # Publish idle event — the event-driven scheduler will
+            # immediately try to assign the next ticket via _on_persona_idle
+            await publish("persona.idle", {"persona_id": persona.id})
 
     t = asyncio.create_task(_run(), name=label)
     _running_tasks.add(t)
@@ -478,30 +526,6 @@ async def _check_task_budget_post_run(ticket_id: int) -> None:
                 used,
                 ticket.budget_tokens,
             )
-
-
-async def _greedy_pickup(persona: Persona) -> None:
-    """After finishing a task, solver claims the next best-match ticket via pull."""
-    try:
-        load_company_config()
-    except FileNotFoundError:
-        return
-
-    claimed = await claim_next(persona.id)
-    if not claimed:
-        return
-
-    logger.info(
-        "Greedy pickup: %s claimed ticket #%d",
-        persona.id,
-        claimed["id"],
-    )
-    _spawn_persona_task(
-        persona,
-        _build_task_prompt_from_dict(claimed),
-        f"solve-ticket-{claimed['id']}",
-        ticket_id=claimed["id"],
-    )
 
 
 _HR_TAGS = {"hr", "hiring", "firing", "headcount", "personnel", "recruit"}
