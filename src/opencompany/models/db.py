@@ -157,6 +157,23 @@ class CompanySnapshot(Base):
     )
 
 
+class SoulVersion(Base):
+    """Append-only log of every accepted soul.md version."""
+
+    __tablename__ = "soul_versions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, init=False, autoincrement=True)
+    version: Mapped[int]
+    content: Mapped[str]
+    diff: Mapped[str] = mapped_column(default="")
+    rationale: Mapped[str] = mapped_column(default="")
+    proposed_by: Mapped[str] = mapped_column(default="system")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default_factory=lambda: datetime.now(UTC),
+    )
+
+
 class OverseerMessage(Base):
     __tablename__ = "overseer_messages"
 
