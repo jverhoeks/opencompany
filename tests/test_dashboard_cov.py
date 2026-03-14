@@ -256,6 +256,31 @@ async def test_overview_persona_fields(dashboard_app):
     assert persona["actions"] == 1
 
 
+@pytest.mark.asyncio
+async def test_soul_update_endpoint():
+    """POST /api/soul should call propose_update."""
+    from unittest.mock import AsyncMock, patch
+
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+
+    from opencompany.gateway.api import router
+
+    app = FastAPI()
+    app.include_router(router, prefix="/api")
+
+    with patch("opencompany.company.soul.propose_update", new_callable=AsyncMock) as mock:
+        mock.return_value = (True, "Soul v2 applied")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/soul",
+                json={"content": "# Version: 2\nNew", "rationale": "test"},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "accepted"
+        mock.assert_called_once()
+
+
 async def test_overview_includes_fired_personas(dashboard_app):
     """Overview shows fired personas too."""
     factory = dashboard_app["factory"]
