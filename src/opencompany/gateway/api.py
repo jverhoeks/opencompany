@@ -335,6 +335,52 @@ async def api_export_config(session: AsyncSession = Depends(get_session)):
     return {"exported_to": str(out)}
 
 
+# --- Soul history endpoints ---
+
+
+@router.get("/soul", dependencies=[Depends(verify_api_key)])
+async def api_get_soul():
+    """Return current soul.md content."""
+    from opencompany.company.soul import read_soul
+
+    return {"content": read_soul()}
+
+
+@router.get("/soul/history", dependencies=[Depends(verify_api_key)])
+async def api_soul_history(
+    limit: int = 10,
+    session: AsyncSession = Depends(get_session),
+):
+    """Return recent soul.md version history with diffs."""
+    from opencompany.models.db import SoulVersion
+
+    result = await session.execute(
+        select(SoulVersion).order_by(SoulVersion.version.desc()).limit(limit)
+    )
+    versions = result.scalars().all()
+    return [
+        {
+            "version": v.version,
+            "proposed_by": v.proposed_by,
+            "rationale": v.rationale,
+            "diff": v.diff,
+            "created_at": v.created_at.isoformat() if v.created_at else None,
+        }
+        for v in versions
+    ]
+
+
+@router.post("/soul/rollback/{version}", dependencies=[Depends(verify_api_key)])
+async def api_soul_rollback(version: int):
+    """Rollback soul.md to a specific version."""
+    from opencompany.company.soul import rollback
+
+    ok, msg = await rollback(version)
+    if not ok:
+        raise HTTPException(status_code=404, detail=msg)
+    return {"status": "ok", "message": msg}
+
+
 # --- Efficiency metrics endpoint ---
 
 
