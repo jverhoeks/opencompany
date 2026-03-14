@@ -260,3 +260,82 @@ Editor form submit
   → on error: red toast with error message
   → all views auto-update via SSE
 ```
+
+## Testing: Playwright E2E
+
+### Setup
+
+Add `pytest-playwright` as a dev dependency. Tests live in `tests/test_dashboard_e2e.py`.
+
+The test server uses the same in-memory SQLite + ASGI pattern as existing e2e tests (`test_e2e.py`), but served via `uvicorn` on a random port so Playwright can connect via a real browser.
+
+**New dependency:** `pytest-playwright` (pulls in `playwright` automatically).
+
+**Fixture: `live_server`** — starts the FastAPI app on `localhost:<random_port>` with seeded test data (CEO, HR, PM, tech-lead, 2 solvers, 5 tickets in various statuses), yields the base URL, shuts down after the test.
+
+**Fixture: `seeded_data`** — inserts the test personas and tickets into the in-memory DB so all views have data to render.
+
+### Test File Structure
+
+```
+tests/
+  test_dashboard_e2e.py      # all Playwright tests
+  conftest.py                # existing + new live_server fixture
+```
+
+### Test Cases
+
+#### Shell & Tab Navigation
+- `test_dashboard_loads` — navigate to `/dashboard`, verify header with "NovaCraft" title is visible
+- `test_tab_switching` — click each tab (Kanban, Organigram, Office, Editor), verify view container content changes
+- `test_default_tab_is_kanban` — on load, Kanban view is active
+- `test_sidebar_shows_personas` — sidebar lists all seeded personas with names
+
+#### Kanban View
+- `test_kanban_columns_present` — verify 5 column headers (Open, Assigned, In Progress, Review, Done)
+- `test_kanban_tickets_in_correct_columns` — seeded tickets appear in columns matching their status
+- `test_kanban_ticket_card_content` — a ticket card shows title, priority badge, tags, assigned persona
+- `test_kanban_filter_by_persona` — select a persona in the filter, verify only their tickets show
+- `test_kanban_click_ticket_shows_detail` — click a ticket card, verify detail panel appears in sidebar
+
+#### Organigram View
+- `test_organigram_renders_svg` — switch to Organigram tab, verify SVG element exists with nodes
+- `test_organigram_hierarchy` — CEO node at top, solvers at bottom, connected by paths
+- `test_organigram_node_content` — nodes show persona name, role, activity state dot
+- `test_organigram_zoom` — use mouse wheel to zoom, verify SVG transform changes
+- `test_organigram_zoom_to_fit` — click zoom-to-fit button, verify view resets
+- `test_organigram_click_node` — click a persona node, verify detail in sidebar
+
+#### Office Floor Plan
+- `test_office_renders_rooms` — switch to Office tab, verify room elements exist
+- `test_office_ceo_corner_office` — CEO persona is in the largest room (corner office)
+- `test_office_hr_near_ceo` — HR persona is in a room adjacent to CEO
+- `test_office_leads_in_mid_row` — lead personas appear in the middle row offices
+- `test_office_solvers_in_open_floor` — solver personas appear in the open floor area at desks
+- `test_office_shows_ticket_counts` — each persona desk/room shows their active ticket count
+- `test_office_fired_persona_dimmed` — a fired persona's desk appears dimmed
+
+#### Company Editor
+- `test_editor_subtabs` — switch to Editor tab, verify 3 sub-tabs (Personas, Roles, Soul)
+- `test_editor_persona_list` — Personas sub-tab shows list of all personas
+- `test_editor_persona_form` — click a persona, verify form populates with their data
+- `test_editor_persona_save` — edit a persona field, click save, verify success toast, verify API was called
+- `test_editor_roles_list` — Roles sub-tab shows list of roles from config
+- `test_editor_role_form` — click a role, verify form with type, responsibilities, tools checkboxes
+- `test_editor_soul_markdown` — Soul sub-tab shows textarea and preview panel
+- `test_editor_soul_version_history` — version history list shows SoulVersion entries
+- `test_editor_fired_persona_not_editable` — fired persona in list is dimmed, form fields disabled
+
+### SSE Testing Strategy
+
+Playwright tests do NOT rely on SSE streaming for initial data. Instead:
+- The `live_server` fixture seeds data before the browser connects
+- The dashboard's initial `fetch()` to `/api/dashboard/overview` provides first render
+- For tests that verify live updates (optional, stretch goal), use `page.evaluate()` to trigger a mock SSE event
+
+### Running
+
+```bash
+uv run playwright install chromium    # one-time browser install
+uv run pytest tests/test_dashboard_e2e.py -v
+```
