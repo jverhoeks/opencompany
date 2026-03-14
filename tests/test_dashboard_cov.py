@@ -299,3 +299,51 @@ async def test_overview_includes_reports_to(db_engine):
     assert pm_data["reports_to"] == "ceo"
     ceo_data = next(p for p in data["personas"] if p["id"] == "ceo")
     assert ceo_data["reports_to"] is None
+
+
+@pytest.mark.asyncio
+async def test_patch_persona_config_name_and_role(db_engine):
+    """PATCH /api/config/personas/{id} should accept name and role."""
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from opencompany.gateway.api import router
+    from opencompany.models.db import PersonaConfig
+    from opencompany.models.engine import get_session
+
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async def _override():
+        async with factory() as s:
+            yield s
+
+    app = FastAPI()
+    app.dependency_overrides[get_session] = _override
+    app.include_router(router, prefix="/api")
+
+    async with factory() as session:
+        session.add(
+            PersonaConfig(
+                id="dev1",
+                name="Dev One",
+                role="backend-dev",
+                trust="solver",
+                skills=[],
+                budget_tokens_daily=100000,
+                instructions="",
+                personality={},
+                updated_by="system",
+            )
+        )
+        await session.commit()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.patch(
+            "/api/config/personas/dev1",
+            json={"name": "Dev Alpha", "role": "frontend-dev"},
+        )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["name"] == "Dev Alpha"
+    assert data["role"] == "frontend-dev"
