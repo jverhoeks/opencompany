@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 
 from opencompany.events.bus import publish
-from opencompany.models.db import Ticket, WorkLog
+from opencompany.models.db import Persona, Ticket, WorkLog
 from opencompany.models.engine import async_session
 from opencompany.utils import _run_async
 
@@ -167,3 +167,65 @@ async def _update_ticket(ticket_id: int, status: str | None = None, result: str 
 
 def update_ticket_sync(**kwargs):
     return _run_async(_update_ticket(**kwargs))
+
+
+async def claim_next(persona_id: str) -> dict | None:
+    """Atomically claim the best open ticket for a persona.
+
+    Uses tag-based matching (picks_up / skills) to find the best fit.
+    Returns a dict with ticket info if claimed, None otherwise.
+    """
+    async with async_session() as session:
+        persona = await session.get(Persona, persona_id)
+        if not persona or persona.status != "active":
+            return None
+
+        picks_up = persona.picks_up or persona.skills or []
+        if not picks_up:
+            return None
+
+        result = await session.execute(
+            select(Ticket).where(
+                Ticket.status == "open",
+                Ticket.assigned_to.is_(None),
+            )
+        )
+        candidates = result.scalars().all()
+        if not candidates:
+            return None
+
+        # Score candidates by tag match
+        persona_tags = {s.lower() for s in picks_up}
+        best_ticket = None
+        best_score = 0.0
+        for ticket in candidates:
+            ticket_tags = {t.lower() for t in ticket.tags}
+            score = _fuzzy_tag_score(persona_tags, ticket_tags)
+            if score > best_score:
+                best_score = score
+                best_ticket = ticket
+
+        if not best_ticket:
+            return None
+
+        # Claim it
+        best_ticket.status = "assigned"
+        best_ticket.assigned_to = persona_id
+        best_ticket.updated_at = datetime.now(UTC)
+        log = WorkLog(persona_id=persona_id, action="claimed", ticket_id=best_ticket.id)
+        session.add(log)
+        await session.commit()
+
+        logger.info(
+            "Persona %s claimed ticket #%d (score=%.1f)",
+            persona_id,
+            best_ticket.id,
+            best_score,
+        )
+        return {
+            "id": best_ticket.id,
+            "title": best_ticket.title,
+            "description": best_ticket.description,
+            "tags": best_ticket.tags,
+            "priority": best_ticket.priority,
+        }

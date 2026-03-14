@@ -7,8 +7,8 @@ from sqlalchemy import and_, func, select
 
 from opencompany.agents.runner import run_persona
 from opencompany.company.config import load_company_config
-from opencompany.company.taskboard import find_best_solver
-from opencompany.events.bus import subscribe
+from opencompany.company.taskboard import claim_next, find_best_solver
+from opencompany.events.bus import publish, subscribe
 from opencompany.models.db import Persona, Ticket, WorkLog
 from opencompany.models.engine import async_session
 
@@ -232,6 +232,24 @@ async def _assign_to_solver(ticket: Ticket, session) -> None:
         )
 
 
+def _build_task_prompt_from_dict(ticket_data: dict) -> str:
+    """Build a task prompt from a claim_next result dict."""
+    return (
+        f"You have been assigned ticket #{ticket_data['id']}: {ticket_data['title']}\n\n"
+        f"Description: {ticket_data.get('description', '')}\n"
+        f"Priority: {ticket_data.get('priority', 'medium')}\n"
+        f"Tags: {', '.join(ticket_data.get('tags', []))}\n\n"
+        f"INSTRUCTIONS:\n"
+        f"1. Do the work described in this ticket.\n"
+        f"2. ALWAYS use write_file to save your output (code, documents, etc.) "
+        f"to the workspace. Do NOT just return code as text.\n"
+        f"3. When done, call update_ticket with ticket_id={ticket_data['id']}, "
+        f"a brief result summary, and status='review'.\n"
+        f"4. Keep deliverables focused: runnable code files, HTML pages, "
+        f"or markdown docs. No cloud infra or deployment configs."
+    )
+
+
 def _build_task_prompt(ticket: Ticket) -> str:
     """Build a task prompt for a persona based on the ticket."""
     return (
@@ -336,6 +354,12 @@ def _spawn_persona_task(persona: Persona, task: str, label: str, ticket_id: int 
             await set_persona_state(persona.id, "blocked")
             return
 
+        # Per-task budget gate: check if ticket has enough budget left
+        if ticket_id:
+            task_budget_ok = await _check_task_budget(ticket_id, persona.id)
+            if not task_budget_ok:
+                return
+
         try:
             await set_persona_state(persona.id, "working")
             if ticket_id:
@@ -349,6 +373,10 @@ def _spawn_persona_task(persona: Persona, task: str, label: str, ticket_id: int 
             # Store token usage on ticket
             if ticket_id and (in_tok or out_tok):
                 await _add_ticket_tokens(ticket_id, in_tok, out_tok)
+
+            # Check if ticket exceeded its per-task budget and requeue
+            if ticket_id:
+                await _check_task_budget_post_run(ticket_id)
 
             # Consume tokens from persona budget
             if in_tok or out_tok:
@@ -400,56 +428,80 @@ async def _add_ticket_tokens(ticket_id: int, tokens_in: int, tokens_out: int) ->
             await session.commit()
 
 
+_MIN_USEFUL_TOKENS = 200
+
+
+async def _check_task_budget(ticket_id: int, persona_id: str) -> bool:
+    """Check if a ticket has enough per-task budget remaining for meaningful work.
+
+    Returns True if work should proceed, False if ticket was requeued.
+    """
+    async with async_session() as session:
+        ticket = await session.get(Ticket, ticket_id)
+        if not ticket or ticket.budget_tokens == 0:
+            return True  # 0 = unlimited
+        used = (ticket.tokens_in or 0) + (ticket.tokens_out or 0)
+        remaining = ticket.budget_tokens - used
+        if remaining < _MIN_USEFUL_TOKENS:
+            logger.warning(
+                "Ticket #%d budget exhausted (%d/%d used), requeuing",
+                ticket_id,
+                used,
+                ticket.budget_tokens,
+            )
+            ticket.status = "open"
+            ticket.assigned_to = None
+            log = WorkLog(
+                persona_id=persona_id,
+                action="requeued",
+                ticket_id=ticket_id,
+                details="budget_exhausted",
+            )
+            session.add(log)
+            await session.commit()
+            await publish("ticket.created", {"ticket_id": ticket_id})
+            return False
+    return True
+
+
+async def _check_task_budget_post_run(ticket_id: int) -> None:
+    """After a run, if the ticket exceeded its budget, log a warning."""
+    async with async_session() as session:
+        ticket = await session.get(Ticket, ticket_id)
+        if not ticket or ticket.budget_tokens == 0:
+            return
+        used = (ticket.tokens_in or 0) + (ticket.tokens_out or 0)
+        if used > ticket.budget_tokens:
+            logger.warning(
+                "Ticket #%d exceeded budget: %d/%d tokens used",
+                ticket_id,
+                used,
+                ticket.budget_tokens,
+            )
+
+
 async def _greedy_pickup(persona: Persona) -> None:
-    """After finishing a task, solver looks for the next unassigned ticket."""
+    """After finishing a task, solver claims the next best-match ticket via pull."""
     try:
         load_company_config()
     except FileNotFoundError:
         return
 
-    async with async_session() as session:
-        result = await session.execute(
-            select(Ticket).where(
-                Ticket.status == "open",
-                Ticket.assigned_to.is_(None),
-            )
-        )
-        orphans = result.scalars().all()
-
-    if not orphans:
-        return
-
-    # Find best match for this solver's skills
-    picks_up = persona.picks_up or persona.skills or []
-    best_ticket = None
-    best_score = 0.0
-    for ticket in orphans:
-        from opencompany.company.taskboard import _fuzzy_tag_score
-
-        score = _fuzzy_tag_score({s.lower() for s in picks_up}, {t.lower() for t in ticket.tags})
-        logger.debug(
-            "Greedy pickup %s: ticket #%d score=%.1f (skills=%s, tags=%s)",
-            persona.id,
-            ticket.id,
-            score,
-            picks_up,
-            ticket.tags,
-        )
-        if score > best_score:
-            best_score = score
-            best_ticket = ticket
-
-    if not best_ticket:
+    claimed = await claim_next(persona.id)
+    if not claimed:
         return
 
     logger.info(
-        "Greedy pickup: %s grabs ticket #%d (score=%.1f)",
+        "Greedy pickup: %s claimed ticket #%d",
         persona.id,
-        best_ticket.id,
-        best_score,
+        claimed["id"],
     )
-    # Route through normal flow so all logging/state tracking happens
-    await _route_ticket(best_ticket.id)
+    _spawn_persona_task(
+        persona,
+        _build_task_prompt_from_dict(claimed),
+        f"solve-ticket-{claimed['id']}",
+        ticket_id=claimed["id"],
+    )
 
 
 _HR_TAGS = {"hr", "hiring", "firing", "headcount", "personnel", "recruit"}

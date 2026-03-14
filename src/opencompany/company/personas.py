@@ -16,6 +16,32 @@ logger = logging.getLogger(__name__)
 
 _VALID_PERSONA_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
 _DEFAULT_MAX_HEADCOUNT = 2  # max active personas per role unless overridden
+_MAX_TEAM_SIZE = int(os.environ.get("MAX_TEAM_SIZE", "12"))
+_HIRE_CAPACITY_THRESHOLD = 1.5  # only hire when open_tickets / active_solvers >= this
+
+
+async def capacity_ratio() -> float:
+    """Return open_tickets / active_solvers. Values >1.5 suggest understaffing.
+
+    Returns float('inf') when there are no active solvers (always hire).
+    """
+    async with async_session() as session:
+        open_result = await session.execute(
+            select(func.count(Ticket.id)).where(Ticket.status == "open")
+        )
+        open_count = open_result.scalar() or 0
+
+        solver_result = await session.execute(
+            select(func.count(Persona.id)).where(
+                Persona.type == "solver",
+                Persona.status == "active",
+            )
+        )
+        solver_count = solver_result.scalar() or 0
+
+    if solver_count == 0:
+        return float("inf")  # no solvers = always understaffed
+    return open_count / solver_count
 
 
 async def _hire_persona(
@@ -32,6 +58,44 @@ async def _hire_persona(
     if not _VALID_PERSONA_ID.match(persona_id):
         return (
             f"Error: invalid persona_id {persona_id!r} (alphanumeric, hyphens, underscores only)"
+        )
+
+    # Duplicate check — fast fail before capacity checks
+    async with async_session() as session:
+        existing = await session.get(Persona, persona_id)
+        if existing:
+            logger.warning("Hire rejected: persona %r already exists", persona_id)
+            return f"Error: persona '{persona_id}' already exists"
+
+    # Global team size cap
+    async with async_session() as session:
+        total_result = await session.execute(
+            select(func.count(Persona.id)).where(Persona.status == "active")
+        )
+        total_active = total_result.scalar() or 0
+    if total_active >= _MAX_TEAM_SIZE:
+        logger.warning(
+            "Hire rejected: team size %d already at cap %d",
+            total_active,
+            _MAX_TEAM_SIZE,
+        )
+        return (
+            f"Error: team already has {total_active} active personas "
+            f"(max {_MAX_TEAM_SIZE}). Fire someone first."
+        )
+
+    # Capacity ratio check — don't hire if team already has sufficient capacity
+    ratio = await capacity_ratio()
+    if ratio < _HIRE_CAPACITY_THRESHOLD:
+        logger.warning(
+            "Hire rejected: capacity ratio %.1f < %.1f (team has sufficient capacity)",
+            ratio,
+            _HIRE_CAPACITY_THRESHOLD,
+        )
+        return (
+            f"Hiring rejected: team has sufficient capacity "
+            f"(ratio={ratio:.1f}, threshold={_HIRE_CAPACITY_THRESHOLD}). "
+            f"No hire needed."
         )
 
     # Auto-fill picks_up, tools, model_id, budget from role config when not provided
@@ -55,11 +119,6 @@ async def _hire_persona(
         logger.debug("Could not load role config for %s, using provided values", role_id)
 
     async with async_session() as session:
-        existing = await session.get(Persona, persona_id)
-        if existing:
-            logger.warning("Hire rejected: persona %r already exists", persona_id)
-            return f"Error: persona '{persona_id}' already exists"
-
         # Headcount guard: reject if too many active personas in same role
         result = await session.execute(
             select(func.count(Persona.id)).where(

@@ -54,6 +54,7 @@ class Ticket(Base):
     result: Mapped[str | None] = mapped_column(default=None)
     tokens_in: Mapped[int] = mapped_column(default=0)
     tokens_out: Mapped[int] = mapped_column(default=0)
+    budget_tokens: Mapped[int] = mapped_column(default=4000)
     parent_id: Mapped[int | None] = mapped_column(ForeignKey("tickets.id"), default=None)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
