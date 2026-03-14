@@ -17,6 +17,20 @@ logger = logging.getLogger(__name__)
 # Track background persona tasks so we don't lose exceptions silently
 _running_tasks: set[asyncio.Task] = set()
 
+# Per-persona concurrency semaphores — prevents a persona from running
+# multiple tasks simultaneously (configurable per role via max_concurrent).
+_persona_locks: dict[str, asyncio.Semaphore] = {}
+_DEFAULT_MAX_CONCURRENT = 1  # solvers/leads: 1 task at a time
+
+
+def _get_persona_lock(
+    persona_id: str, max_concurrent: int = _DEFAULT_MAX_CONCURRENT
+) -> asyncio.Semaphore:
+    """Get or create a semaphore for a persona."""
+    if persona_id not in _persona_locks:
+        _persona_locks[persona_id] = asyncio.Semaphore(max_concurrent)
+    return _persona_locks[persona_id]
+
 
 async def set_persona_state(persona_id: str, state: str) -> None:
     """Update a persona's activity_state (idle, working, blocked)."""
@@ -384,6 +398,19 @@ def _spawn_persona_task(persona: Persona, task: str, label: str, ticket_id: int 
     async def _run():
         from opencompany.company.budget import check_budget, consume_tokens
 
+        lock = _get_persona_lock(persona.id)
+        if lock.locked():
+            logger.info(
+                "Persona %s already running a task, skipping %s",
+                persona.id,
+                label,
+            )
+            return
+
+        async with lock:
+            await _run_inner(check_budget, consume_tokens)
+
+    async def _run_inner(check_budget, consume_tokens):
         # Budget gate: skip if over daily budget
         has_budget, remaining = await check_budget(persona.id)
         if not has_budget:
