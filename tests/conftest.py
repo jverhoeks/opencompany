@@ -1,7 +1,14 @@
+import asyncio
 import os
+import socket
+import threading
 from datetime import datetime
+from pathlib import Path
 
 import pytest
+import uvicorn
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 # ---------------------------------------------------------------------------
 # Make PostgreSQL JSONB compile as plain JSON on SQLite so we can run
@@ -12,7 +19,10 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.ext.compiler import compiles
 
 import opencompany.models.db  # noqa: F401 — register models with Base
+from opencompany.gateway.api import router as api_router
+from opencompany.gateway.dashboard import router as dashboard_router
 from opencompany.models.base import Base
+from opencompany.models.db import Persona, Ticket
 
 
 @compiles(JSONB, "sqlite")
@@ -159,3 +169,181 @@ def pytest_terminal_summary(terminalreporter, config):
     with open(report_path, "w") as f:
         f.write("\n".join(lines))
     terminalreporter.write_line(f"\nMarkdown report written to {report_path}")
+
+
+# ---------------------------------------------------------------------------
+# Live server fixture for Playwright E2E tests
+# ---------------------------------------------------------------------------
+def _free_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+async def _seed_and_build_app():
+    """Create an in-memory DB, seed it, and return (app, engine)."""
+    engine = create_async_engine(TEST_DATABASE_URL)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with factory() as session:
+        session.add(Persona(id="ceo", name="Alice CEO", role="ceo", type="manager"))
+        session.add(Persona(id="hr", name="Bob HR", role="hr", type="manager", reports_to="ceo"))
+        session.add(Persona(id="pm", name="Carol PM", role="pm", type="manager", reports_to="ceo"))
+        session.add(
+            Persona(
+                id="tech-lead",
+                name="Dave TL",
+                role="tech-lead",
+                type="lead",
+                reports_to="pm",
+            )
+        )
+        session.add(
+            Persona(
+                id="dev1",
+                name="Eve Dev",
+                role="backend-dev",
+                type="solver",
+                reports_to="tech-lead",
+            )
+        )
+        session.add(
+            Persona(
+                id="dev2",
+                name="Frank Dev",
+                role="frontend-dev",
+                type="solver",
+                reports_to="tech-lead",
+            )
+        )
+        session.add(
+            Persona(
+                id="fired1",
+                name="Ghost",
+                role="backend-dev",
+                type="solver",
+                status="fired",
+                reports_to="tech-lead",
+            )
+        )
+        session.add(
+            Ticket(
+                title="Setup CI",
+                status="open",
+                created_by="ceo",
+                tags=["backend"],
+                priority="high",
+            )
+        )
+        session.add(
+            Ticket(
+                title="Build API",
+                status="assigned",
+                assigned_to="dev1",
+                created_by="pm",
+                tags=["backend"],
+            )
+        )
+        session.add(
+            Ticket(
+                title="Fix bug",
+                status="in_progress",
+                assigned_to="dev2",
+                created_by="tech-lead",
+                tags=["frontend"],
+                priority="high",
+            )
+        )
+        session.add(
+            Ticket(
+                title="Code review",
+                status="review",
+                assigned_to="dev1",
+                created_by="pm",
+            )
+        )
+        session.add(
+            Ticket(
+                title="Deploy v1",
+                status="done",
+                assigned_to="dev1",
+                created_by="ceo",
+            )
+        )
+        await session.commit()
+
+    test_app = FastAPI()
+
+    async def _get_test_session():
+        async with factory() as session:
+            yield session
+
+    from opencompany.models.engine import get_session
+
+    test_app.dependency_overrides[get_session] = _get_test_session
+    test_app.include_router(api_router, prefix="/api")
+    test_app.include_router(dashboard_router)
+
+    static_dir = Path(__file__).resolve().parent.parent / "src" / "opencompany" / "static"
+    test_app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+    return test_app, engine
+
+
+def _run_in_thread(coro):
+    """Run a coroutine in a new thread with its own event loop, return the result."""
+    result = None
+    exc = None
+
+    def _target():
+        nonlocal result, exc
+        loop = asyncio.new_event_loop()
+        try:
+            result = loop.run_until_complete(coro)
+        except Exception as e:
+            exc = e
+        finally:
+            loop.close()
+
+    t = threading.Thread(target=_target)
+    t.start()
+    t.join()
+    if exc:
+        raise exc
+    return result
+
+
+@pytest.fixture
+def live_server():
+    """Start a real HTTP server with seeded data for Playwright tests."""
+    import time
+
+    import httpx
+
+    test_app, engine = _run_in_thread(_seed_and_build_app())
+
+    port = _free_port()
+    cfg = uvicorn.Config(test_app, host="127.0.0.1", port=port, log_level="error")
+    server = uvicorn.Server(cfg)
+
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+
+    # Poll until the server is ready
+    for _ in range(50):
+        try:
+            r = httpx.get(f"http://127.0.0.1:{port}/dashboard")
+            if r.status_code == 200:
+                break
+        except Exception:
+            pass
+        time.sleep(0.1)
+
+    yield f"http://127.0.0.1:{port}"
+
+    server.should_exit = True
+    thread.join(timeout=5)
+    _run_in_thread(engine.dispose())
