@@ -118,6 +118,57 @@ def invalidate_cache() -> None:
     _cached_mtime = 0.0
 
 
+async def boot_persona_configs(yaml_path: str | None = None) -> int:
+    """Seed PersonaConfig table from company.yaml on first start.
+
+    Skips if DB already has persona configs (i.e. company is already running).
+    Returns the number of configs seeded.
+    """
+    from sqlalchemy import func, select
+
+    from opencompany.models.db import PersonaConfig
+    from opencompany.models.engine import async_session
+
+    async with async_session() as session:
+        count = await session.scalar(select(func.count(PersonaConfig.id)))
+        if count and count > 0:
+            logger.info("PersonaConfig already seeded (%d entries), skipping", count)
+            return 0
+
+    config = load_company_config(yaml_path)
+
+    seeded = 0
+    async with async_session() as session:
+        for role_id, role_data in config.roles.items():
+            pc = PersonaConfig(
+                id=role_id,
+                name=role_data.get("name", role_id),
+                role=role_id,
+                trust=_trust_from_type(role_data.get("type", "solver")),
+                skills=role_data.get("tag_match", []),
+                budget_tokens_daily=role_data.get("daily_token_budget", 0),
+                instructions=role_data.get("responsibilities", ""),
+                personality=role_data.get("personality", {}),
+                updated_by="system",
+            )
+            session.add(pc)
+            seeded += 1
+        await session.commit()
+
+    logger.info("Seeded %d persona configs from YAML", seeded)
+    return seeded
+
+
+def _trust_from_type(role_type: str) -> str:
+    """Map role type to trust tier."""
+    return {
+        "manager": "full",
+        "lead": "lead",
+        "solver": "solver",
+        "observer": "external",
+    }.get(role_type, "solver")
+
+
 def add_role(
     role_id: str,
     role_type: str,

@@ -122,6 +122,41 @@ class PolicyDocument(Base):
     )
 
 
+class PersonaConfig(Base):
+    """Live editable config for a persona. Loaded by prompts.py at each run."""
+
+    __tablename__ = "persona_configs"
+
+    id: Mapped[str] = mapped_column(primary_key=True)  # matches personas.id
+    name: Mapped[str]
+    role: Mapped[str]
+    trust: Mapped[str] = mapped_column(default="solver")
+    skills: Mapped[list] = mapped_column(JSONB, default_factory=list)
+    budget_tokens_daily: Mapped[int] = mapped_column(default=0)
+    instructions: Mapped[str] = mapped_column(default="")
+    personality: Mapped[dict] = mapped_column(JSONB, default_factory=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default_factory=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+    updated_by: Mapped[str] = mapped_column(default="system")
+
+
+class CompanySnapshot(Base):
+    """Append-only log of company state. Written on interval + task completion."""
+
+    __tablename__ = "company_snapshots"
+
+    id: Mapped[int] = mapped_column(primary_key=True, init=False, autoincrement=True)
+    trigger: Mapped[str]  # interval | tasks_complete | manual
+    snapshot: Mapped[dict] = mapped_column(JSONB, default_factory=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default_factory=lambda: datetime.now(UTC),
+    )
+
+
 class OverseerMessage(Base):
     __tablename__ = "overseer_messages"
 
