@@ -61,3 +61,33 @@ class CompanyHooks:
             "tool_calls": self.tool_calls,
             "tool_count": len(self.tool_calls),
         }
+
+
+class HiringGuardrail:
+    """Intercept hire_persona calls and steer the agent away when team has capacity.
+
+    Instead of hard-blocking, injects corrective context so the agent
+    can make a better decision (e.g. assign existing team members).
+    """
+
+    async def check_hire(self, tool_name: str, tool_args: dict) -> str | None:
+        """Check if hiring should be allowed.
+
+        Returns a steering message if hiring should be blocked, None if allowed.
+        """
+        if tool_name != "hire_persona":
+            return None
+
+        from opencompany.company.personas import capacity_ratio
+
+        ratio = await capacity_ratio()
+        if ratio < 1.5:
+            msg = (
+                f"SYSTEM GUARDRAIL: Current capacity ratio is {ratio:.1f}. "
+                f"Team is sufficiently staffed. Do NOT hire. "
+                f"Assign existing team members instead."
+            )
+            logger.warning("Hiring guardrail triggered: ratio=%.1f", ratio)
+            return msg
+
+        return None

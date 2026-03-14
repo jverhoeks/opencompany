@@ -178,3 +178,40 @@ def _build_soul_section() -> str:
     except Exception:
         logger.debug("Could not load soul.md", exc_info=True)
         return ""
+
+
+# SOP tag → file mapping
+_SOP_TAG_MAP = {
+    "review": "code_review.md",
+    "code-review": "code_review.md",
+    "hr": "new_hire.md",
+    "hiring": "new_hire.md",
+    "kickoff": "project_kickoff.md",
+    "project": "project_kickoff.md",
+}
+
+
+def load_sop_for_tags(tags: list[str]) -> str:
+    """Load the relevant SOP for a set of ticket tags.
+
+    Returns the SOP content as a prompt section, or empty string if no match.
+    """
+    from pathlib import Path
+
+    sops_dir = Path("sops")
+    if not sops_dir.exists():
+        return ""
+
+    seen: set[str] = set()
+    sections: list[str] = []
+    for tag in tags:
+        sop_file = _SOP_TAG_MAP.get(tag.lower())
+        if sop_file and sop_file not in seen:
+            seen.add(sop_file)
+            sop_path = sops_dir / sop_file
+            if sop_path.exists():
+                sections.append(sop_path.read_text())
+
+    if not sections:
+        return ""
+    return "\nSTANDARD OPERATING PROCEDURE:\n" + "\n---\n".join(sections)
