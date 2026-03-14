@@ -376,6 +376,25 @@ async def api_soul_history(
     ]
 
 
+class SoulUpdate(BaseModel):
+    content: str
+    rationale: str
+
+
+@router.post("/soul", dependencies=[Depends(verify_api_key)])
+async def api_propose_soul_update(body: SoulUpdate):
+    from opencompany.company.soul import propose_update
+
+    accepted, reason = await propose_update(
+        proposed=body.content,
+        rationale=body.rationale,
+        proposed_by="overseer",
+    )
+    if not accepted:
+        raise HTTPException(status_code=422, detail=reason)
+    return {"status": "accepted", "message": reason}
+
+
 @router.post("/soul/rollback/{version}", dependencies=[Depends(verify_api_key)])
 async def api_soul_rollback(version: int):
     """Rollback soul.md to a specific version."""
