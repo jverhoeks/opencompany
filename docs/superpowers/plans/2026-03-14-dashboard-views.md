@@ -115,26 +115,43 @@ git commit -m "feat: add reports_to, backstory, budget_tokens to SSE data"
 
 - [ ] **Step 1: Write failing test**
 
-In `tests/test_sprint5_persona_config.py` (or `tests/test_dashboard_cov.py`), add:
+In `tests/test_dashboard_cov.py`, add (using the same inline app pattern as existing tests):
 
 ```python
 @pytest.mark.asyncio
-async def test_patch_persona_config_name_and_role(client, db_session):
+async def test_patch_persona_config_name_and_role(db_engine):
     """PATCH /api/config/personas/{id} should accept name and role."""
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from opencompany.gateway.api import router
     from opencompany.models.db import PersonaConfig
+    from opencompany.models.engine import get_session
 
-    pc = PersonaConfig(
-        id="dev1", name="Dev One", role="backend-dev", trust="solver",
-        skills=[], budget_tokens_daily=100000, instructions="", personality={},
-        updated_by="system",
-    )
-    db_session.add(pc)
-    await db_session.commit()
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
 
-    resp = await client.patch(
-        "/api/config/personas/dev1",
-        json={"name": "Dev Alpha", "role": "frontend-dev"},
-    )
+    async def _override():
+        async with factory() as s:
+            yield s
+
+    app = FastAPI()
+    app.dependency_overrides[get_session] = _override
+    app.include_router(router, prefix="/api")
+
+    async with factory() as session:
+        session.add(PersonaConfig(
+            id="dev1", name="Dev One", role="backend-dev", trust="solver",
+            skills=[], budget_tokens_daily=100000, instructions="", personality={},
+            updated_by="system",
+        ))
+        await session.commit()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.patch(
+            "/api/config/personas/dev1",
+            json={"name": "Dev Alpha", "role": "frontend-dev"},
+        )
     assert resp.status_code == 200
     data = resp.json()
     assert data["name"] == "Dev Alpha"
@@ -143,9 +160,9 @@ async def test_patch_persona_config_name_and_role(client, db_session):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Expected: 200 but name/role unchanged (fields ignored by current `PersonaConfigPatch`)
+Expected: 200 but name/role unchanged (fields ignored by current handler)
 
-- [ ] **Step 3: Add `name` and `role` to `PersonaConfigPatch`**
+- [ ] **Step 3: Add `name` and `role` to `PersonaConfigPatch` AND handler**
 
 In `src/opencompany/gateway/api.py`, modify `PersonaConfigPatch`:
 
@@ -159,14 +176,21 @@ class PersonaConfigPatch(BaseModel):
     skills: list[str] | None = None
 ```
 
-The existing `api_patch_persona_config` handler already uses `body.model_dump(exclude_unset=True)` to update fields, so this should work without further changes.
+**Important:** The existing handler uses explicit `if body.field is not None:` checks (not `model_dump`). Add these two lines in `api_patch_persona_config` after the existing checks:
+
+```python
+    if body.name is not None:
+        config.name = body.name
+    if body.role is not None:
+        config.role = body.role
+```
 
 - [ ] **Step 4: Run test to verify it passes**
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/opencompany/gateway/api.py tests/
+git add src/opencompany/gateway/api.py tests/test_dashboard_cov.py
 git commit -m "feat: allow patching persona name and role via config API"
 ```
 
@@ -341,7 +365,7 @@ async def api_list_roles() -> list[RoleOut]:
 
 @router.post("/config/roles", status_code=201, dependencies=[Depends(verify_api_key)])
 async def api_create_role(body: RoleCreate) -> RoleOut:
-    from opencompany.company.config import add_role
+    from opencompany.company.config import add_role, update_role
     try:
         add_role(
             role_id=body.id,
@@ -352,6 +376,16 @@ async def api_create_role(body: RoleCreate) -> RoleOut:
             tag_match=body.tag_match,
             routes_to=body.routes_to,
         )
+        # add_role only handles core fields; write extra fields via update_role
+        extras = {}
+        if body.personality:
+            extras["personality"] = body.personality
+        if body.daily_token_budget:
+            extras["daily_token_budget"] = body.daily_token_budget
+        if body.max_headcount is not None:
+            extras["max_headcount"] = body.max_headcount
+        if extras:
+            update_role(body.id, extras)
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
     return RoleOut(**body.model_dump())
@@ -377,7 +411,9 @@ async def api_delete_role(
     from opencompany.company.config import delete_role
     # Check no active personas use this role
     count = await session.scalar(
-        sa_func.count(Persona.id).filter(Persona.role == role_id, Persona.status == "active")
+        select(sa_func.count()).select_from(Persona).where(
+            Persona.role == role_id, Persona.status == "active"
+        )
     )
     if count and count > 0:
         raise HTTPException(
@@ -433,10 +469,35 @@ async def api_propose_soul_update(body: SoulUpdate):
     return {"status": "accepted", "message": reason}
 ```
 
-- [ ] **Step 2: Commit**
+- [ ] **Step 2: Write a test for the endpoint**
+
+The soul endpoint calls `propose_update()` which validates content. Mock `propose_update` to verify the endpoint wiring:
+
+```python
+# In tests/test_dashboard_cov.py or a new test file
+@pytest.mark.asyncio
+async def test_soul_update_endpoint():
+    from unittest.mock import AsyncMock, patch
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+    from opencompany.gateway.api import router
+
+    app = FastAPI()
+    app.include_router(router, prefix="/api")
+
+    with patch("opencompany.company.soul.propose_update", new_callable=AsyncMock) as mock:
+        mock.return_value = (True, "Soul v2 applied")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post("/api/soul", json={"content": "# Version: 2\nNew", "rationale": "test"})
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "accepted"
+        mock.assert_called_once()
+```
+
+- [ ] **Step 3: Commit**
 
 ```bash
-git add src/opencompany/gateway/api.py
+git add src/opencompany/gateway/api.py tests/
 git commit -m "feat: POST /api/soul endpoint for soul updates"
 ```
 
@@ -697,11 +758,14 @@ Each view partial is a self-contained HTML fragment with `<style>`, markup, and 
 
 The kanban view renders 5 status columns (Open, Assigned, In Progress, Review, Done) with ticket cards. Cards show title, priority badge, tags, assignee, and token usage bar. Filters allow filtering by persona, priority, and tag.
 
+**Rejected/Closed section:** Below the columns, a collapsible `<details>` element shows tickets with status `rejected` or `closed`. These are NOT in the main columns.
+
 Key implementation details:
 - `esc()` helper uses `textContent`-based escaping for all user data
 - Cards are built by constructing escaped strings and setting column body content
 - Filter changes trigger re-render using `window._cachedData`
 - Card clicks dispatch a `show-detail` CustomEvent for the sidebar
+- Rejected/closed tickets filtered out of main columns, shown in collapsed section with count
 
 - [ ] **Step 2: Commit**
 
@@ -965,6 +1029,9 @@ Test cases organized by view:
 - `test_editor_persona_save` — edit + save shows success toast
 - `test_editor_roles_list` — roles sub-tab shows role items
 - `test_editor_soul_markdown` — soul sub-tab shows textarea + preview
+- `test_editor_role_form` — click a role, verify form with type dropdown and responsibilities textarea
+- `test_editor_soul_version_history` — version history list visible in soul sub-tab
+- `test_editor_fired_persona_not_editable` — fired persona has disabled form fields
 
 Each test navigates to `/dashboard`, waits for initial data load, then performs assertions using Playwright's `expect()` API.
 
