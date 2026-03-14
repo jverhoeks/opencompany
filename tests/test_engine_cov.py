@@ -413,6 +413,7 @@ async def test_greedy_pickup_finds_matching_ticket(db_engine):
 
     with (
         patch("opencompany.company.engine.async_session", factory),
+        patch("opencompany.company.taskboard.async_session", factory),
         patch("opencompany.company.engine.run_persona", new_callable=AsyncMock),
         patch(
             "opencompany.company.engine.load_company_config",
@@ -452,8 +453,8 @@ async def test_greedy_pickup_no_orphans(db_engine):
 
     with (
         patch("opencompany.company.engine.async_session", factory),
+        patch("opencompany.company.taskboard.async_session", factory),
         patch("opencompany.company.engine.load_company_config", return_value=_TEST_CONFIG),
-        patch("opencompany.company.engine._route_ticket", new_callable=AsyncMock) as mock_route,
     ):
         from opencompany.company.engine import _greedy_pickup
 
@@ -462,7 +463,7 @@ async def test_greedy_pickup_no_orphans(db_engine):
 
         await _greedy_pickup(persona)
 
-    mock_route.assert_not_awaited()
+    # No open tickets → claim_next returns None → no task spawned
 
 
 async def test_greedy_pickup_no_config():

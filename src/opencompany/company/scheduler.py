@@ -1,4 +1,4 @@
-"""Scheduler — periodic sweep, CEO kickoff, and persona heartbeat.
+"""Scheduler — periodic sweep, CEO kickoff, persona heartbeat, and stale claim expiry.
 
 Runs a sweep every 30 seconds to find open unassigned tickets
 and try to route them. Tickets with no matching solver escalate to CEO.
@@ -8,10 +8,14 @@ the board and create work. Disabled by default (CEO_KICKOFF_INTERVAL_SECONDS=0).
 
 Optionally runs a per-persona heartbeat that makes idle personas
 check in autonomously. Disabled by default (HEARTBEAT_INTERVAL_SECONDS=0).
+
+Runs a stale assignment expiry every 2 minutes to reclaim tickets stuck
+in_progress for over 10 minutes (work-stealing from blocked personas).
 """
 
 import logging
 import os
+from datetime import UTC, datetime, timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -120,8 +124,68 @@ async def _persona_heartbeat_job():
         logger.exception("Persona heartbeat job failed")
 
 
+_STALE_MINUTES = int(os.environ.get("STALE_ASSIGNMENT_MINUTES", "10"))
+
+
+async def _expire_stale_assignments_job():
+    """Reclaim tickets stuck in_progress for too long (work-stealing)."""
+    try:
+        from sqlalchemy import select
+
+        from opencompany.events.bus import publish
+        from opencompany.models.db import Ticket, WorkLog
+        from opencompany.models.engine import async_session
+
+        cutoff = datetime.now(UTC) - timedelta(minutes=_STALE_MINUTES)
+        async with async_session() as session:
+            result = await session.execute(
+                select(Ticket).where(
+                    Ticket.status == "in_progress",
+                    Ticket.updated_at < cutoff,
+                )
+            )
+            stale = result.scalars().all()
+            if not stale:
+                return
+
+            count = 0
+            for ticket in stale:
+                old_assignee = ticket.assigned_to
+                ticket.status = "open"
+                ticket.assigned_to = None
+                ticket.updated_at = datetime.now(UTC)
+                log = WorkLog(
+                    persona_id=old_assignee or "system",
+                    action="expired",
+                    ticket_id=ticket.id,
+                    details=f"stale after {_STALE_MINUTES}m",
+                )
+                session.add(log)
+                count += 1
+
+            await session.commit()
+
+            # Re-publish so the engine routes them
+            for ticket in stale:
+                await publish("ticket.created", {"ticket_id": ticket.id})
+
+            logger.info(
+                "Expired %d stale in_progress tickets (cutoff=%dm)",
+                count,
+                _STALE_MINUTES,
+            )
+    except Exception:
+        logger.exception("Stale assignment expiry job failed")
+
+
 def start_scheduler():
     scheduler.add_job(_sweep_job, "interval", seconds=30, id="sweep_unassigned")
+    scheduler.add_job(
+        _expire_stale_assignments_job,
+        "interval",
+        seconds=120,
+        id="expire_stale_assignments",
+    )
 
     ceo_interval = int(os.environ.get("CEO_KICKOFF_INTERVAL_SECONDS", "0"))
     if ceo_interval > 0:
