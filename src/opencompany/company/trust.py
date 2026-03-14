@@ -20,6 +20,7 @@ TOOL_TIER_REQUIREMENTS: dict[str, str] = {
     # Lead tier+
     "create_ticket": "lead",
     "send_message": "lead",
+    "propose_soul_update": "lead",
     # Solver tier+
     "write_file": "solver",
     "update_ticket": "solver",

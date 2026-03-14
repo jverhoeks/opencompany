@@ -16,6 +16,7 @@ from opencompany.agents.tools.policy import (
     read_policy,
     write_policy,
 )
+from opencompany.agents.tools.soul import propose_soul_update, read_soul
 from opencompany.agents.tools.tickets import create_ticket, list_tickets, update_ticket
 from opencompany.agents.tools.web import web_fetch, web_search
 
@@ -43,4 +44,6 @@ ALL_TOOLS = {
     "approve_policy": approve_policy,
     "list_policies": list_policies,
     "read_policy": read_policy,
+    "propose_soul_update": propose_soul_update,
+    "read_soul": read_soul,
 }
