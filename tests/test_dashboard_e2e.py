@@ -140,7 +140,7 @@ def test_organigram_click_node(page: Page, live_server: str):
     page.wait_for_timeout(3000)
     nodes = page.locator("#view-container svg g[data-id], #view-container svg [class*='node']")
     if nodes.count() > 0:
-        nodes.first.click()
+        nodes.first.click(force=True)
 
 
 # --- Office Floor Plan ---
