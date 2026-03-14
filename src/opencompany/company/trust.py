@@ -22,6 +22,7 @@ TOOL_TIER_REQUIREMENTS: dict[str, str] = {
     "send_message": "lead",
     "propose_soul_update": "lead",
     # Solver tier+
+    "spawn_subagent": "solver",
     "write_file": "solver",
     "update_ticket": "solver",
     "web_fetch": "solver",
