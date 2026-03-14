@@ -252,6 +252,8 @@ class PersonaConfigOut(BaseModel):
 
 
 class PersonaConfigPatch(BaseModel):
+    name: str | None = None
+    role: str | None = None
     instructions: str | None = None
     budget_tokens_daily: int | None = None
     personality: dict | None = None
@@ -295,6 +297,10 @@ async def api_patch_persona_config(
         config.personality = body.personality
     if body.skills is not None:
         config.skills = body.skills
+    if body.name is not None:
+        config.name = body.name
+    if body.role is not None:
+        config.role = body.role
     config.updated_by = "overseer"
     await session.commit()
     await session.refresh(config)
