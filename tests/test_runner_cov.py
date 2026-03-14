@@ -152,6 +152,10 @@ def test_create_agent_resolves_tools_from_registry():
 
     with (
         patch("opencompany.agents.runner.get_model"),
+        patch(
+            "opencompany.agents.runner.filter_tools_by_tier",
+            return_value=(["create_ticket", "read_file"], []),
+        ),
         patch("strands.Agent") as MockAgent,
     ):
         create_agent(persona, tools=registry)

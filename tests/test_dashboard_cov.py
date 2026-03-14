@@ -102,7 +102,7 @@ async def test_overseer_list_messages(dashboard_app):
     client = dashboard_app["client"]
 
     with patch(
-        "opencompany.gateway.dashboard.list_messages",
+        "opencompany.company.overseer.list_messages",
         new_callable=AsyncMock,
         return_value=[{"id": 1, "persona_id": "dev", "message": "Need help"}],
     ):
@@ -118,7 +118,7 @@ async def test_overseer_reply_message_not_found(dashboard_app):
     client = dashboard_app["client"]
 
     with patch(
-        "opencompany.gateway.dashboard.reply_to_message",
+        "opencompany.company.overseer.reply_to_message",
         new_callable=AsyncMock,
         return_value=None,
     ):
@@ -158,12 +158,12 @@ async def test_overseer_reply_success(dashboard_app, db_engine):
 
     with (
         patch(
-            "opencompany.gateway.dashboard.reply_to_message",
+            "opencompany.company.overseer.reply_to_message",
             new_callable=AsyncMock,
             return_value=mock_msg,
         ),
-        patch("opencompany.gateway.dashboard.async_session", factory),
-        patch("opencompany.gateway.dashboard._spawn_persona_task") as mock_spawn,
+        patch("opencompany.models.engine.async_session", factory),
+        patch("opencompany.company.engine._spawn_persona_task") as mock_spawn,
     ):
         resp = await client.post(
             "/api/overseer/messages/1/reply",
@@ -188,12 +188,12 @@ async def test_overseer_reply_no_persona(dashboard_app):
 
     with (
         patch(
-            "opencompany.gateway.dashboard.reply_to_message",
+            "opencompany.company.overseer.reply_to_message",
             new_callable=AsyncMock,
             return_value=mock_msg,
         ),
-        patch("opencompany.gateway.dashboard.async_session", factory),
-        patch("opencompany.gateway.dashboard._spawn_persona_task") as mock_spawn,
+        patch("opencompany.models.engine.async_session", factory),
+        patch("opencompany.company.engine._spawn_persona_task") as mock_spawn,
     ):
         resp = await client.post(
             "/api/overseer/messages/1/reply",
