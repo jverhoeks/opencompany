@@ -1,0 +1,751 @@
+<!-- Editor view partial: Personas | Roles | Soul sub-tabs -->
+<style>
+/* ── Editor layout ─────────────────────────────── */
+.editor-wrap {
+  display: flex; flex-direction: column; height: 100%; overflow: hidden;
+}
+
+/* ── Sub-tabs ──────────────────────────────────── */
+.editor-subtabs {
+  display: flex; gap: 16px; padding: 10px 20px; border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.editor-subtab {
+  background: none; border: none; border-bottom: 2px solid transparent;
+  color: var(--text-dim); font-family: var(--font-body); font-size: 13px;
+  padding: 4px 2px 6px; cursor: pointer; transition: all 0.15s;
+}
+.editor-subtab:hover { color: var(--text-main); }
+.editor-subtab.active { color: var(--cyan); border-bottom-color: var(--cyan); }
+
+/* ── Panes ─────────────────────────────────────── */
+.editor-pane {
+  display: none; flex: 1; min-height: 0; overflow: hidden;
+}
+.editor-pane.active { display: flex; }
+
+/* ── Shared panel / list styles ────────────────── */
+.ed-left {
+  width: 240px; min-width: 240px; border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; background: var(--bg-panel); overflow: hidden;
+}
+.ed-search {
+  padding: 8px; border-bottom: 1px solid var(--border);
+}
+.ed-search input {
+  width: 100%; padding: 6px 10px; background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 4px; color: var(--text-main); font-family: var(--font-body); font-size: 12px;
+  outline: none;
+}
+.ed-search input::placeholder { color: var(--text-dim); }
+.ed-search input:focus { border-color: var(--cyan); }
+.ed-list {
+  flex: 1; overflow-y: auto; padding: 4px 0;
+}
+.ed-list-item {
+  padding: 8px 12px; cursor: pointer; font-size: 13px; color: var(--text-main);
+  border-left: 2px solid transparent; transition: background 0.15s;
+}
+.ed-list-item:hover { background: var(--bg-hover); }
+.ed-list-item.selected { background: var(--bg-hover); border-left-color: var(--cyan); color: var(--text-bright); }
+.ed-list-item .item-sub { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+.ed-list-item.fired { opacity: 0.4; }
+.ed-list-item.fired .item-name { text-decoration: line-through; }
+
+.ed-list-top {
+  padding: 8px; border-bottom: 1px solid var(--border);
+}
+.ed-list-top button {
+  width: 100%; padding: 6px; background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 4px; color: var(--cyan); font-family: var(--font-mono); font-size: 11px;
+  cursor: pointer; transition: all 0.15s;
+}
+.ed-list-top button:hover { border-color: var(--cyan); background: var(--bg-hover); }
+
+/* ── Form panel (right) ───────────────────────── */
+.ed-form {
+  flex: 1; overflow-y: auto; padding: 16px 20px;
+}
+.ed-form .empty-msg {
+  color: var(--text-dim); font-size: 13px; padding: 40px 0; text-align: center;
+}
+.ed-field { margin-bottom: 14px; }
+.ed-field label {
+  display: block; font-size: 11px; font-family: var(--font-mono); color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;
+}
+.ed-field input,
+.ed-field textarea,
+.ed-field select {
+  width: 100%; padding: 7px 10px; background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 4px; color: var(--text-main); font-family: var(--font-body); font-size: 13px;
+  outline: none; transition: border-color 0.15s;
+}
+.ed-field input:focus,
+.ed-field textarea:focus,
+.ed-field select:focus { border-color: var(--cyan); }
+.ed-field input:disabled,
+.ed-field textarea:disabled,
+.ed-field select:disabled { opacity: 0.4; cursor: not-allowed; }
+.ed-field textarea { resize: vertical; min-height: 80px; font-family: var(--font-mono); font-size: 12px; }
+.ed-field select { cursor: pointer; }
+
+.ed-actions { display: flex; gap: 8px; margin-top: 16px; }
+.ed-btn {
+  padding: 7px 16px; border-radius: 4px; border: 1px solid var(--border);
+  font-family: var(--font-mono); font-size: 11px; cursor: pointer; transition: all 0.15s;
+}
+.ed-btn-primary { background: var(--cyan); color: var(--bg-deep); border-color: var(--cyan); }
+.ed-btn-primary:hover { opacity: 0.85; }
+.ed-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.ed-btn-danger { background: transparent; color: var(--red); border-color: var(--red); }
+.ed-btn-danger:hover { background: rgba(255,64,96,0.1); }
+
+/* ── Soul layout ───────────────────────────────── */
+.soul-layout { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+.soul-edit {
+  flex: 1; display: flex; flex-direction: column; padding: 12px; gap: 8px;
+  border-right: 1px solid var(--border);
+}
+.soul-edit textarea {
+  flex: 1; resize: none; padding: 10px; background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 4px; color: var(--text-main); font-family: var(--font-mono); font-size: 12px;
+  outline: none; min-height: 0;
+}
+.soul-edit textarea:focus { border-color: var(--cyan); }
+.soul-edit .rationale-row { display: flex; gap: 8px; }
+.soul-edit .rationale-row input { flex: 1; }
+.soul-edit input {
+  padding: 7px 10px; background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 4px; color: var(--text-main); font-family: var(--font-body); font-size: 12px;
+  outline: none;
+}
+.soul-edit input:focus { border-color: var(--cyan); }
+
+.soul-preview {
+  flex: 1; overflow-y: auto; padding: 16px; border-right: 1px solid var(--border);
+}
+.soul-preview .md-content {
+  font-size: 13px; line-height: 1.6; color: var(--text-main);
+}
+.soul-preview .md-content h1, .soul-preview .md-content h2, .soul-preview .md-content h3 {
+  color: var(--text-bright); margin: 12px 0 6px;
+}
+.soul-preview .md-content h1 { font-size: 18px; }
+.soul-preview .md-content h2 { font-size: 15px; }
+.soul-preview .md-content h3 { font-size: 13px; }
+.soul-preview .md-content p { margin: 6px 0; }
+.soul-preview .md-content ul, .soul-preview .md-content ol { margin: 6px 0 6px 20px; }
+.soul-preview .md-content code {
+  background: var(--bg-card); padding: 1px 4px; border-radius: 3px;
+  font-family: var(--font-mono); font-size: 12px;
+}
+.soul-preview .md-content pre {
+  background: var(--bg-card); padding: 10px; border-radius: 4px;
+  overflow-x: auto; font-size: 12px; margin: 8px 0;
+}
+
+.soul-history {
+  width: 200px; min-width: 200px; overflow-y: auto; padding: 8px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.soul-history-title {
+  font-family: var(--font-display); font-size: 10px; letter-spacing: 1.5px;
+  text-transform: uppercase; color: var(--text-dim); padding: 4px 4px 8px;
+  border-bottom: 1px solid var(--border); margin-bottom: 4px;
+}
+.soul-ver {
+  padding: 8px; background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 4px; cursor: pointer; transition: all 0.15s; font-size: 11px;
+}
+.soul-ver:hover { border-color: var(--cyan); }
+.soul-ver .ver-num { font-family: var(--font-mono); color: var(--cyan); font-weight: 600; }
+.soul-ver .ver-by { color: var(--text-dim); margin-top: 2px; }
+.soul-ver .ver-date { color: var(--text-dim); font-size: 10px; margin-top: 2px; }
+.soul-ver .ver-rationale {
+  color: var(--text-main); font-size: 10px; margin-top: 4px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ── Toast ─────────────────────────────────────── */
+.ed-toast {
+  position: fixed; bottom: 24px; right: 24px; padding: 10px 18px;
+  border-radius: 6px; font-family: var(--font-mono); font-size: 12px;
+  color: var(--bg-deep); z-index: 10000; opacity: 0;
+  transition: opacity 0.3s; pointer-events: none;
+}
+.ed-toast.visible { opacity: 1; }
+.ed-toast.success { background: var(--green); }
+.ed-toast.error { background: var(--red); color: #fff; }
+</style>
+
+<div class="editor-wrap">
+  <!-- Sub-tabs -->
+  <div class="editor-subtabs">
+    <button class="editor-subtab active" data-subtab="personas">Personas</button>
+    <button class="editor-subtab" data-subtab="roles">Roles</button>
+    <button class="editor-subtab" data-subtab="soul">Soul</button>
+  </div>
+
+  <!-- Personas pane -->
+  <div class="editor-pane active" id="edPersonasPane">
+    <div class="ed-left">
+      <div class="ed-search">
+        <input type="text" id="edPersonaSearch" placeholder="Search personas..." />
+      </div>
+      <div class="ed-list" id="edPersonaList"></div>
+    </div>
+    <div class="ed-form" id="edPersonaForm">
+      <div class="empty-msg">Select a persona to edit</div>
+    </div>
+  </div>
+
+  <!-- Roles pane -->
+  <div class="editor-pane" id="edRolesPane">
+    <div class="ed-left">
+      <div class="ed-list-top">
+        <button id="edNewRoleBtn">+ New Role</button>
+      </div>
+      <div class="ed-list" id="edRoleList"></div>
+    </div>
+    <div class="ed-form" id="edRoleForm">
+      <div class="empty-msg">Select a role to edit</div>
+    </div>
+  </div>
+
+  <!-- Soul pane -->
+  <div class="editor-pane" id="edSoulPane">
+    <div class="soul-layout">
+      <div class="soul-edit">
+        <textarea id="edSoulContent" placeholder="Loading soul.md..."></textarea>
+        <div class="rationale-row">
+          <input type="text" id="edSoulRationale" placeholder="Rationale for this change..." />
+          <button class="ed-btn ed-btn-primary" id="edSoulSaveBtn">Save</button>
+        </div>
+      </div>
+      <div class="soul-preview">
+        <div class="md-content" id="edSoulPreview"></div>
+      </div>
+      <div class="soul-history">
+        <div class="soul-history-title">Version History</div>
+        <div id="edSoulHistoryList"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast element -->
+<div class="ed-toast" id="edToast"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ── DOM helpers ──────────────────────────────────
+  function el(tag, className, textContent) {
+    var e = document.createElement(tag);
+    if (className) e.className = className;
+    if (textContent !== undefined) e.textContent = textContent;
+    return e;
+  }
+
+  function clearChildren(node) {
+    while (node.firstChild) node.removeChild(node.firstChild);
+  }
+
+  // ── API helpers ──────────────────────────────────
+  function getApiKey() {
+    var params = new URLSearchParams(window.location.search);
+    return params.get('api_key') || localStorage.getItem('oc_api_key') || '';
+  }
+
+  async function apiCall(method, path, body) {
+    var key = getApiKey();
+    var opts = {
+      method: method,
+      headers: {
+        'Authorization': 'Bearer ' + key,
+        'Content-Type': 'application/json',
+      },
+    };
+    if (body !== undefined) {
+      opts.body = JSON.stringify(body);
+    }
+    var res = await fetch(window.location.origin + path, opts);
+    if (!res.ok) {
+      var detail = 'HTTP ' + res.status;
+      try {
+        var j = await res.json();
+        if (j && j.detail) detail = j.detail;
+      } catch (_e) { /* ignore parse errors */ }
+      throw new Error(detail);
+    }
+    return res.json();
+  }
+
+  // Toast notification
+  var toastEl = document.getElementById('edToast');
+  var toastTimer = null;
+  function toast(msg, type) {
+    if (toastTimer) clearTimeout(toastTimer);
+    toastEl.textContent = msg;
+    toastEl.className = 'ed-toast visible ' + (type || 'success');
+    toastTimer = setTimeout(function () { toastEl.classList.remove('visible'); }, 2000);
+  }
+
+  // ── State ────────────────────────────────────────
+  var personasSse = [];      // from SSE data (render calls)
+  var personasConfig = {};   // id -> config from /api/config/personas
+  var selectedPersonaId = null;
+  var rolesData = {};        // id -> role object
+  var selectedRoleId = null;
+
+  // ── Sub-tab switching ────────────────────────────
+  var subtabs = document.querySelectorAll('.editor-subtab');
+  var panes = {
+    personas: document.getElementById('edPersonasPane'),
+    roles:    document.getElementById('edRolesPane'),
+    soul:     document.getElementById('edSoulPane'),
+  };
+
+  subtabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      subtabs.forEach(function (t) { t.classList.remove('active'); });
+      Object.values(panes).forEach(function (p) { p.classList.remove('active'); });
+      tab.classList.add('active');
+      var key = tab.dataset.subtab;
+      panes[key].classList.add('active');
+      if (key === 'roles') loadRoles();
+      if (key === 'soul') loadSoul();
+    });
+  });
+
+  // ══════════════════════════════════════════════════
+  //  PERSONAS SUB-TAB
+  // ══════════════════════════════════════════════════
+
+  var personaSearchEl = document.getElementById('edPersonaSearch');
+  var personaListEl = document.getElementById('edPersonaList');
+  var personaFormEl = document.getElementById('edPersonaForm');
+
+  personaSearchEl.addEventListener('input', renderPersonaList);
+
+  function renderPersonaList() {
+    var query = personaSearchEl.value.toLowerCase();
+    clearChildren(personaListEl);
+
+    var filtered = personasSse.filter(function (p) {
+      return p.name.toLowerCase().indexOf(query) !== -1 ||
+        p.role.toLowerCase().indexOf(query) !== -1 ||
+        p.id.toLowerCase().indexOf(query) !== -1;
+    });
+
+    filtered.forEach(function (p) {
+      var isFired = p.status === 'fired';
+      var item = el('div', 'ed-list-item' + (isFired ? ' fired' : '') + (p.id === selectedPersonaId ? ' selected' : ''));
+      var nameDiv = el('div', 'item-name', p.name);
+      var subDiv = el('div', 'item-sub', p.role);
+      item.appendChild(nameDiv);
+      item.appendChild(subDiv);
+      item.addEventListener('click', function () {
+        selectedPersonaId = p.id;
+        renderPersonaList();
+        renderPersonaForm(p);
+      });
+      personaListEl.appendChild(item);
+    });
+  }
+
+  function buildField(labelText, inputEl) {
+    var wrapper = el('div', 'ed-field');
+    var lbl = el('label', '', labelText);
+    wrapper.appendChild(lbl);
+    wrapper.appendChild(inputEl);
+    return wrapper;
+  }
+
+  function makeInput(type, id, value, disabled) {
+    var inp = document.createElement('input');
+    inp.type = type;
+    inp.id = id;
+    inp.value = value || '';
+    if (disabled) inp.disabled = true;
+    if (type === 'number') inp.min = '0';
+    return inp;
+  }
+
+  function makeTextarea(id, value, disabled) {
+    var ta = document.createElement('textarea');
+    ta.id = id;
+    ta.textContent = value || '';
+    if (disabled) ta.disabled = true;
+    return ta;
+  }
+
+  function makeSelect(id, options, selectedValue, disabled) {
+    var sel = document.createElement('select');
+    sel.id = id;
+    if (disabled) sel.disabled = true;
+    options.forEach(function (opt) {
+      var o = document.createElement('option');
+      o.value = opt;
+      o.textContent = opt;
+      if (opt === selectedValue) o.selected = true;
+      sel.appendChild(o);
+    });
+    return sel;
+  }
+
+  function renderPersonaForm(persona) {
+    var cfg = personasConfig[persona.id] || {};
+    var isFired = persona.status === 'fired';
+    var personality = cfg.personality || {};
+
+    clearChildren(personaFormEl);
+
+    personaFormEl.appendChild(buildField('Name',
+      makeInput('text', 'epName', persona.name, isFired)));
+    personaFormEl.appendChild(buildField('Role',
+      makeInput('text', 'epRole', persona.role, isFired)));
+    personaFormEl.appendChild(buildField('Skills (comma-separated)',
+      makeInput('text', 'epSkills', (cfg.skills || persona.skills || []).join(', '), isFired)));
+    personaFormEl.appendChild(buildField('Personality Traits (comma-separated)',
+      makeInput('text', 'epTraits', (personality.traits || []).join(', '), isFired)));
+    personaFormEl.appendChild(buildField('Communication Style',
+      makeInput('text', 'epCommStyle', personality.communication_style || '', isFired)));
+    personaFormEl.appendChild(buildField('Quirks (comma-separated)',
+      makeInput('text', 'epQuirks', (personality.quirks || []).join(', '), isFired)));
+    personaFormEl.appendChild(buildField('Catchphrases (comma-separated)',
+      makeInput('text', 'epCatchphrases', (personality.catchphrases || []).join(', '), isFired)));
+    personaFormEl.appendChild(buildField('Instructions',
+      makeTextarea('epInstructions', cfg.instructions || '', isFired)));
+    personaFormEl.appendChild(buildField('Daily Token Budget',
+      makeInput('number', 'epBudget', String(cfg.budget_tokens_daily || persona.daily_token_budget || 0), isFired)));
+
+    var actions = el('div', 'ed-actions');
+    var saveBtn = el('button', 'ed-btn ed-btn-primary', 'Save');
+    saveBtn.id = 'epSaveBtn';
+    if (isFired) saveBtn.disabled = true;
+    actions.appendChild(saveBtn);
+    personaFormEl.appendChild(actions);
+
+    if (!isFired) {
+      saveBtn.addEventListener('click', savePersona);
+    }
+  }
+
+  async function savePersona() {
+    var btn = document.getElementById('epSaveBtn');
+    btn.textContent = 'Saving...';
+    btn.disabled = true;
+
+    var skills = document.getElementById('epSkills').value
+      .split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    var traits = document.getElementById('epTraits').value
+      .split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    var commStyle = document.getElementById('epCommStyle').value.trim();
+    var quirks = document.getElementById('epQuirks').value
+      .split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    var catchphrases = document.getElementById('epCatchphrases').value
+      .split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    var instructions = document.getElementById('epInstructions').value;
+    var budgetTokensDaily = parseInt(document.getElementById('epBudget').value, 10) || 0;
+
+    var body = {
+      skills: skills,
+      personality: {
+        traits: traits,
+        communication_style: commStyle,
+        quirks: quirks,
+        catchphrases: catchphrases,
+      },
+      instructions: instructions,
+      budget_tokens_daily: budgetTokensDaily,
+    };
+
+    try {
+      var updated = await apiCall('PATCH', '/api/config/personas/' + selectedPersonaId, body);
+      personasConfig[selectedPersonaId] = updated;
+      toast('Persona saved', 'success');
+    } catch (err) {
+      toast('Error: ' + err.message, 'error');
+    } finally {
+      btn.textContent = 'Save';
+      btn.disabled = false;
+    }
+  }
+
+  async function fetchPersonaConfigs() {
+    try {
+      var list = await apiCall('GET', '/api/config/personas');
+      personasConfig = {};
+      list.forEach(function (c) { personasConfig[c.id] = c; });
+    } catch (err) {
+      console.warn('Failed to load persona configs:', err);
+    }
+  }
+
+  // ══════════════════════════════════════════════════
+  //  ROLES SUB-TAB
+  // ══════════════════════════════════════════════════
+
+  var roleListEl = document.getElementById('edRoleList');
+  var roleFormEl = document.getElementById('edRoleForm');
+
+  document.getElementById('edNewRoleBtn').addEventListener('click', async function () {
+    var id = prompt('Enter new role ID (e.g. qa-engineer):');
+    if (!id || !id.trim()) return;
+    var roleId = id.trim();
+    try {
+      var created = await apiCall('POST', '/api/config/roles', {
+        id: roleId,
+        type: 'solver',
+        responsibilities: '',
+        constraints: '',
+        tag_match: [],
+        daily_token_budget: 0,
+        max_headcount: 5,
+      });
+      toast('Role created', 'success');
+      await loadRoles();
+      selectedRoleId = roleId;
+      renderRoleList();
+      renderRoleForm(rolesData[roleId] || created);
+    } catch (err) {
+      toast('Error: ' + err.message, 'error');
+    }
+  });
+
+  async function loadRoles() {
+    try {
+      var list = await apiCall('GET', '/api/config/roles');
+      rolesData = {};
+      if (Array.isArray(list)) {
+        list.forEach(function (r) { rolesData[r.id] = r; });
+      } else if (typeof list === 'object' && list !== null) {
+        Object.keys(list).forEach(function (k) {
+          rolesData[k] = { id: k };
+          Object.assign(rolesData[k], list[k]);
+        });
+      }
+      renderRoleList();
+    } catch (err) {
+      toast('Failed to load roles: ' + err.message, 'error');
+    }
+  }
+
+  function renderRoleList() {
+    clearChildren(roleListEl);
+    Object.keys(rolesData).sort().forEach(function (id) {
+      var r = rolesData[id];
+      var item = el('div', 'ed-list-item' + (id === selectedRoleId ? ' selected' : ''));
+      item.appendChild(el('div', 'item-name', id));
+      item.appendChild(el('div', 'item-sub', r.type || 'solver'));
+      item.addEventListener('click', function () {
+        selectedRoleId = id;
+        renderRoleList();
+        renderRoleForm(r);
+      });
+      roleListEl.appendChild(item);
+    });
+  }
+
+  function renderRoleForm(role) {
+    var id = role.id || selectedRoleId;
+    clearChildren(roleFormEl);
+
+    var idInput = makeInput('text', 'erRoleId', id, true);
+    roleFormEl.appendChild(buildField('Role ID', idInput));
+
+    roleFormEl.appendChild(buildField('Type',
+      makeSelect('erType', ['manager', 'lead', 'solver', 'observer'], role.type || 'solver', false)));
+    roleFormEl.appendChild(buildField('Responsibilities',
+      makeTextarea('erResponsibilities', role.responsibilities || '', false)));
+    roleFormEl.appendChild(buildField('Constraints',
+      makeTextarea('erConstraints', role.constraints || '', false)));
+    roleFormEl.appendChild(buildField('Tag Match (comma-separated)',
+      makeInput('text', 'erTagMatch', (role.tag_match || []).join(', '), false)));
+    roleFormEl.appendChild(buildField('Daily Token Budget',
+      makeInput('number', 'erBudget', String(role.daily_token_budget || 0), false)));
+    roleFormEl.appendChild(buildField('Max Headcount',
+      makeInput('number', 'erMaxHead', String(role.max_headcount || 5), false)));
+
+    var actions = el('div', 'ed-actions');
+    var saveBtn = el('button', 'ed-btn ed-btn-primary', 'Save');
+    saveBtn.id = 'erSaveBtn';
+    saveBtn.addEventListener('click', function () { saveRole(id); });
+    actions.appendChild(saveBtn);
+
+    var deleteBtn = el('button', 'ed-btn ed-btn-danger', 'Delete');
+    deleteBtn.id = 'erDeleteBtn';
+    deleteBtn.addEventListener('click', function () { deleteRole(id); });
+    actions.appendChild(deleteBtn);
+
+    roleFormEl.appendChild(actions);
+  }
+
+  async function saveRole(roleId) {
+    var btn = document.getElementById('erSaveBtn');
+    btn.textContent = 'Saving...';
+    btn.disabled = true;
+
+    var tagMatch = document.getElementById('erTagMatch').value
+      .split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    var body = {
+      type: document.getElementById('erType').value,
+      responsibilities: document.getElementById('erResponsibilities').value,
+      constraints: document.getElementById('erConstraints').value,
+      tag_match: tagMatch,
+      daily_token_budget: parseInt(document.getElementById('erBudget').value, 10) || 0,
+      max_headcount: parseInt(document.getElementById('erMaxHead').value, 10) || 5,
+    };
+
+    try {
+      var updated = await apiCall('PATCH', '/api/config/roles/' + roleId, body);
+      rolesData[roleId] = { id: roleId };
+      Object.assign(rolesData[roleId], updated);
+      toast('Role saved', 'success');
+    } catch (err) {
+      toast('Error: ' + err.message, 'error');
+    } finally {
+      btn.textContent = 'Save';
+      btn.disabled = false;
+    }
+  }
+
+  async function deleteRole(roleId) {
+    if (!confirm('Delete role "' + roleId + '"? This cannot be undone.')) return;
+    try {
+      await apiCall('DELETE', '/api/config/roles/' + roleId);
+      delete rolesData[roleId];
+      selectedRoleId = null;
+      renderRoleList();
+      clearChildren(roleFormEl);
+      roleFormEl.appendChild(el('div', 'empty-msg', 'Select a role to edit'));
+      toast('Role deleted', 'success');
+    } catch (err) {
+      toast('Error: ' + err.message, 'error');
+    }
+  }
+
+  // ══════════════════════════════════════════════════
+  //  SOUL SUB-TAB
+  // ══════════════════════════════════════════════════
+
+  var soulContentEl = document.getElementById('edSoulContent');
+  var soulRationaleEl = document.getElementById('edSoulRationale');
+  var soulPreviewEl = document.getElementById('edSoulPreview');
+  var soulHistoryListEl = document.getElementById('edSoulHistoryList');
+  var soulSaveBtn = document.getElementById('edSoulSaveBtn');
+
+  // Live markdown preview — uses DOMPurify.sanitize(marked.parse()) as required
+  soulContentEl.addEventListener('input', updateSoulPreview);
+
+  function updateSoulPreview() {
+    var raw = soulContentEl.value;
+    if (typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') {
+      // Safe: sanitized with DOMPurify before DOM insertion
+      soulPreviewEl.innerHTML = DOMPurify.sanitize(marked.parse(raw));
+    } else {
+      soulPreviewEl.textContent = raw;
+    }
+  }
+
+  async function loadSoul() {
+    try {
+      var data = await apiCall('GET', '/api/soul');
+      soulContentEl.value = data.content || '';
+      updateSoulPreview();
+    } catch (err) {
+      console.warn('Failed to load soul:', err);
+    }
+    loadSoulHistory();
+  }
+
+  async function loadSoulHistory() {
+    try {
+      var versions = await apiCall('GET', '/api/soul/history');
+      clearChildren(soulHistoryListEl);
+      versions.forEach(function (v) {
+        var card = el('div', 'soul-ver');
+        card.appendChild(el('div', 'ver-num', 'v' + v.version));
+        card.appendChild(el('div', 'ver-by', v.proposed_by || 'unknown'));
+        if (v.created_at) {
+          card.appendChild(el('div', 'ver-date', new Date(v.created_at).toLocaleString()));
+        }
+        if (v.rationale) {
+          card.appendChild(el('div', 'ver-rationale', v.rationale));
+        }
+        card.addEventListener('click', function () {
+          if (!confirm('Rollback to v' + v.version + '?')) return;
+          rollbackSoul(v.version);
+        });
+        soulHistoryListEl.appendChild(card);
+      });
+    } catch (err) {
+      console.warn('Failed to load soul history:', err);
+    }
+  }
+
+  async function rollbackSoul(version) {
+    try {
+      await apiCall('POST', '/api/soul/rollback/' + version);
+      toast('Rolled back to v' + version, 'success');
+      await loadSoul();
+    } catch (err) {
+      toast('Error: ' + err.message, 'error');
+    }
+  }
+
+  soulSaveBtn.addEventListener('click', async function () {
+    var content = soulContentEl.value;
+    var rationale = soulRationaleEl.value.trim();
+    if (!content) { toast('Soul content is empty', 'error'); return; }
+
+    soulSaveBtn.textContent = 'Saving...';
+    soulSaveBtn.disabled = true;
+    try {
+      await apiCall('POST', '/api/soul', { content: content, rationale: rationale });
+      soulRationaleEl.value = '';
+      toast('Soul saved', 'success');
+      loadSoulHistory();
+    } catch (err) {
+      toast('Error: ' + err.message, 'error');
+    } finally {
+      soulSaveBtn.textContent = 'Save';
+      soulSaveBtn.disabled = false;
+    }
+  });
+
+  // ══════════════════════════════════════════════════
+  //  VIEW REGISTRY
+  // ══════════════════════════════════════════════════
+
+  window.viewRegistry = window.viewRegistry || {};
+  window.viewRegistry['editor'] = {
+    init: function () {
+      fetchPersonaConfigs();
+    },
+
+    render: function (data) {
+      if (data && data.personas) {
+        personasSse = data.personas;
+        renderPersonaList();
+        // Re-render form if a persona is selected (to update SSE-sourced fields)
+        if (selectedPersonaId) {
+          var current = personasSse.find(function (p) { return p.id === selectedPersonaId; });
+          if (current) renderPersonaForm(current);
+        }
+      }
+    },
+
+    destroy: function () {
+      selectedPersonaId = null;
+      selectedRoleId = null;
+      personasSse = [];
+      personasConfig = {};
+      rolesData = {};
+    },
+  };
+})();
+</script>
