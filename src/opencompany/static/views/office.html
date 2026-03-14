@@ -1,0 +1,386 @@
+<!-- Office Floor Plan View — self-contained HTML partial -->
+<style>
+/* ── Blueprint grid background ──────────────────── */
+.office-floor {
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  padding: 24px;
+  background:
+    repeating-linear-gradient(0deg,   transparent, transparent 39px, rgba(0,229,255,0.04) 39px, rgba(0,229,255,0.04) 40px),
+    repeating-linear-gradient(90deg,  transparent, transparent 39px, rgba(0,229,255,0.04) 39px, rgba(0,229,255,0.04) 40px);
+  background-color: #06080f;
+  font-family: 'Outfit', sans-serif;
+  color: #d0d8e8;
+}
+
+/* ── Row sections ───────────────────────────────── */
+.office-row {
+  margin-bottom: 28px;
+}
+
+.office-row-label {
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: rgba(0,229,255,0.5);
+  margin-bottom: 12px;
+  padding-left: 4px;
+}
+
+.office-row-rooms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: stretch;
+}
+
+/* ── Room base ──────────────────────────────────── */
+.office-room {
+  border: 1px solid rgba(0,229,255,0.25);
+  border-radius: 6px;
+  background: rgba(12,16,24,0.85);
+  padding: 16px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+.office-room:hover {
+  border-color: rgba(0,229,255,0.45);
+  box-shadow: 0 0 12px rgba(0,229,255,0.08);
+}
+
+/* Room sizes */
+.office-room.corner {
+  min-width: 160px;
+  min-height: 140px;
+}
+
+.office-room.mid {
+  min-width: 130px;
+  min-height: 120px;
+}
+
+.office-room.small {
+  min-width: 110px;
+  min-height: 110px;
+}
+
+/* ── Desk (open floor) ──────────────────────────── */
+.office-desk {
+  width: 80px;
+  border: 1px solid rgba(0,229,255,0.15);
+  border-radius: 4px;
+  background: rgba(12,16,24,0.6);
+  padding: 10px 6px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  transition: border-color 0.3s;
+}
+
+.office-desk:hover {
+  border-color: rgba(0,229,255,0.35);
+}
+
+/* ── Avatar ─────────────────────────────────────── */
+.office-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: #06080f;
+  margin-bottom: 6px;
+  flex-shrink: 0;
+}
+
+.office-desk .office-avatar {
+  width: 30px;
+  height: 30px;
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
+/* ── Name & role labels ─────────────────────────── */
+.office-name {
+  font-size: 11px;
+  font-weight: 500;
+  color: #d0d8e8;
+  text-align: center;
+  line-height: 1.3;
+  word-break: break-word;
+  max-width: 100%;
+}
+
+.office-desk .office-name {
+  font-size: 9px;
+}
+
+.office-role {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  color: #5a6a80;
+  margin-top: 2px;
+  text-align: center;
+}
+
+.office-desk .office-role {
+  font-size: 7px;
+}
+
+/* ── Activity state dot ─────────────────────────── */
+.office-state-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ffb020;
+}
+
+.office-state-dot.working {
+  background: #39ff8a;
+  animation: office-pulse 2s ease-in-out infinite;
+}
+
+.office-state-dot.idle {
+  background: #ffb020;
+}
+
+.office-state-dot.blocked {
+  background: #ff4060;
+}
+
+@keyframes office-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ── Workload badge ─────────────────────────────── */
+.office-workload {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  background: rgba(0,229,255,0.15);
+  color: #00e5ff;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 8px;
+  line-height: 1.4;
+}
+
+/* ── Fired state ────────────────────────────────── */
+.office-room.fired,
+.office-desk.fired {
+  opacity: 0.25;
+  border-style: dashed;
+}
+
+.office-room.fired .office-name,
+.office-desk.fired .office-name {
+  text-decoration: line-through;
+}
+
+/* ── Type color accents (ring around avatar) ────── */
+.office-avatar.type-manager { background: #00e5ff; }
+.office-avatar.type-lead    { background: #a78bfa; }
+.office-avatar.type-solver  { background: #39ff8a; }
+.office-avatar.type-observer { background: #60a5fa; }
+
+/* ── Open floor wrapping grid ───────────────────── */
+.open-floor-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-start;
+}
+</style>
+
+<div class="office-floor" id="officeFloor">
+  <!-- Populated by JS -->
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ── Helpers ─────────────────────────────────────
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+
+  function initials(name) {
+    return name.split(' ').map(function (w) { return w[0] || ''; }).join('').toUpperCase().slice(0, 2);
+  }
+
+  function clearChildren(node) {
+    while (node.firstChild) node.removeChild(node.firstChild);
+  }
+
+  // ── Type color map ──────────────────────────────
+  var TYPE_COLORS = {
+    manager:  '#00e5ff',
+    lead:     '#a78bfa',
+    solver:   '#39ff8a',
+    observer: '#60a5fa'
+  };
+
+  // ── Build a persona card (room or desk interior) ─
+  function buildPersonaCard(p, container) {
+    var isFired = p.status === 'fired';
+
+    // Fired class
+    if (isFired) container.classList.add('fired');
+
+    // Activity state dot
+    var stateCls = 'office-state-dot ' + (isFired ? 'idle' : (p.activity_state || 'idle'));
+    container.appendChild(el('div', stateCls));
+
+    // Workload badge
+    var wl = p.workload || 0;
+    if (wl > 0) {
+      container.appendChild(el('div', 'office-workload', String(wl)));
+    }
+
+    // Avatar
+    var av = el('div', 'office-avatar type-' + (p.type || 'solver'));
+    av.textContent = initials(p.name);
+    container.appendChild(av);
+
+    // Name
+    container.appendChild(el('div', 'office-name', p.name));
+
+    // Role
+    container.appendChild(el('div', 'office-role', p.role || ''));
+  }
+
+  // ── Render ──────────────────────────────────────
+  function render(personas) {
+    var floor = document.getElementById('officeFloor');
+    if (!floor) return;
+    clearChildren(floor);
+
+    if (!personas || personas.length === 0) {
+      floor.appendChild(el('div', 'office-row-label', 'No personas loaded'));
+      return;
+    }
+
+    // Classify personas into rows
+    var executives = [];  // CEO, HR, other managers
+    var leads = [];
+    var openFloor = [];   // solvers + observers
+
+    personas.forEach(function (p) {
+      var role = (p.role || '').toLowerCase();
+      var type = (p.type || '').toLowerCase();
+
+      if (role === 'ceo' || role === 'hr' || type === 'manager') {
+        executives.push(p);
+      } else if (type === 'lead') {
+        leads.push(p);
+      } else {
+        openFloor.push(p);
+      }
+    });
+
+    // Sort executives: CEO first, then HR, then others
+    executives.sort(function (a, b) {
+      var ra = (a.role || '').toLowerCase();
+      var rb = (b.role || '').toLowerCase();
+      if (ra === 'ceo') return -1;
+      if (rb === 'ceo') return 1;
+      if (ra === 'hr') return -1;
+      if (rb === 'hr') return 1;
+      return 0;
+    });
+
+    // ── Row 1: Executive Offices ──────────────────
+    if (executives.length > 0) {
+      var row1 = el('div', 'office-row');
+      row1.appendChild(el('div', 'office-row-label', 'Executive Offices'));
+      var rooms1 = el('div', 'office-row-rooms');
+
+      executives.forEach(function (p) {
+        var role = (p.role || '').toLowerCase();
+        var sizeClass = 'office-room ';
+        if (role === 'ceo') {
+          sizeClass += 'corner';
+        } else {
+          sizeClass += 'mid';
+        }
+        var room = el('div', sizeClass);
+        buildPersonaCard(p, room);
+        rooms1.appendChild(room);
+      });
+
+      row1.appendChild(rooms1);
+      floor.appendChild(row1);
+    }
+
+    // ── Row 2: Team Leads ─────────────────────────
+    if (leads.length > 0) {
+      var row2 = el('div', 'office-row');
+      row2.appendChild(el('div', 'office-row-label', 'Team Leads'));
+      var rooms2 = el('div', 'office-row-rooms');
+
+      leads.forEach(function (p) {
+        var room = el('div', 'office-room small');
+        buildPersonaCard(p, room);
+        rooms2.appendChild(room);
+      });
+
+      row2.appendChild(rooms2);
+      floor.appendChild(row2);
+    }
+
+    // ── Row 3: Open Floor ─────────────────────────
+    if (openFloor.length > 0) {
+      var row3 = el('div', 'office-row');
+      row3.appendChild(el('div', 'office-row-label', 'Open Floor'));
+      var grid = el('div', 'open-floor-grid');
+
+      openFloor.forEach(function (p) {
+        var desk = el('div', 'office-desk');
+        buildPersonaCard(p, desk);
+        grid.appendChild(desk);
+      });
+
+      row3.appendChild(grid);
+      floor.appendChild(row3);
+    }
+  }
+
+  // ── View Registry ───────────────────────────────
+  if (!window.viewRegistry) window.viewRegistry = {};
+
+  window.viewRegistry['office'] = {
+    init: function (state) {
+      render(state && state.personas ? state.personas : []);
+    },
+    render: function (state) {
+      render(state && state.personas ? state.personas : []);
+    },
+    destroy: function () {
+      var floor = document.getElementById('officeFloor');
+      if (floor) clearChildren(floor);
+    }
+  };
+})();
+</script>

@@ -957,10 +957,10 @@ async def test_workload_balancing_across_solvers(game_company):
 
 
 # ---------------------------------------------------------------------------
-# Seed from the real company.yaml (new format: only CEO + HR)
+# Seed from the real company.yaml (personas section is empty now)
 # ---------------------------------------------------------------------------
 async def test_seed_real_company_yaml(db_engine):
-    """Seed the actual config/company.yaml — only CEO + HR now."""
+    """Seed the actual config/company.yaml — personas: {} means 0 seeded."""
     factory = async_sessionmaker(db_engine, expire_on_commit=False)
 
     with patch("opencompany.company.seed.async_session", factory):
@@ -972,14 +972,7 @@ async def test_seed_real_company_yaml(db_engine):
         from sqlalchemy import func, select
 
         count = await session.scalar(select(func.count(Persona.id)))
-        assert count == 2
-
-        ceo = await session.get(Persona, "ceo")
-        assert ceo.name == "Morgan Hayes"
-        assert ceo.type == "manager"
-
-        hr = await session.get(Persona, "hr")
-        assert hr.name == "Quinn Nakamura"
+        assert count == 0  # personas: {} is empty in company.yaml
 
 
 # ---------------------------------------------------------------------------

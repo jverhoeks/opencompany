@@ -4,11 +4,13 @@ import contextlib
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 import opencompany.models.db  # noqa: F401
 from opencompany.agents.runner import register_tool
@@ -205,6 +207,9 @@ app.add_middleware(
 
 app.include_router(api_router, prefix="/api")
 app.include_router(dashboard_router)
+
+_static_dir = Path(__file__).resolve().parent / "static"
+app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 
 @app.get("/")

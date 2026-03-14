@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 
 def test_persona_writes_to_private_workspace(tmp_path):
-    """write_file with persona_id writes to private/{persona_id}/."""
+    """write_file with persona_id writes to {WORKSPACE_ROOT}/{persona_id}/."""
     from opencompany.agents.tools.code import write_file
 
     with patch("opencompany.agents.tools.code.WORKSPACE_ROOT", str(tmp_path)):
@@ -15,7 +15,7 @@ def test_persona_writes_to_private_workspace(tmp_path):
         )
 
     assert "Wrote" in result
-    private_file = tmp_path / "private" / "backend-dev" / "hello.py"
+    private_file = tmp_path / "backend-dev" / "hello.py"
     assert private_file.exists()
     assert private_file.read_text() == "print('hello')"
 
@@ -35,10 +35,10 @@ def test_persona_reads_shared_workspace(tmp_path):
 
 
 def test_publish_file_copies_to_shared(tmp_path):
-    """publish_file copies a file from private to shared."""
+    """publish_file copies a file from persona workspace to shared."""
     from opencompany.agents.tools.code import publish_file
 
-    private = tmp_path / "private" / "frontend-dev"
+    private = tmp_path / "frontend-dev"
     private.mkdir(parents=True)
     (private / "index.html").write_text("<h1>Landing Page</h1>")
 

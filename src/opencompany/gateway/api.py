@@ -252,6 +252,8 @@ class PersonaConfigOut(BaseModel):
 
 
 class PersonaConfigPatch(BaseModel):
+    name: str | None = None
+    role: str | None = None
     instructions: str | None = None
     budget_tokens_daily: int | None = None
     personality: dict | None = None
@@ -295,6 +297,10 @@ async def api_patch_persona_config(
         config.personality = body.personality
     if body.skills is not None:
         config.skills = body.skills
+    if body.name is not None:
+        config.name = body.name
+    if body.role is not None:
+        config.role = body.role
     config.updated_by = "overseer"
     await session.commit()
     await session.refresh(config)
@@ -368,6 +374,25 @@ async def api_soul_history(
         }
         for v in versions
     ]
+
+
+class SoulUpdate(BaseModel):
+    content: str
+    rationale: str
+
+
+@router.post("/soul", dependencies=[Depends(verify_api_key)])
+async def api_propose_soul_update(body: SoulUpdate):
+    from opencompany.company.soul import propose_update
+
+    accepted, reason = await propose_update(
+        proposed=body.content,
+        rationale=body.rationale,
+        proposed_by="overseer",
+    )
+    if not accepted:
+        raise HTTPException(status_code=422, detail=reason)
+    return {"status": "accepted", "message": reason}
 
 
 @router.post("/soul/rollback/{version}", dependencies=[Depends(verify_api_key)])
@@ -465,3 +490,119 @@ async def api_reset():
         count = len(result.scalars().all())
 
     return {"status": "ok", "personas_seeded": count}
+
+
+# --- Roles CRUD endpoints ---
+
+
+class RoleOut(BaseModel):
+    id: str
+    type: str
+    responsibilities: str
+    constraints: str = ""
+    tools: list[str] = []
+    tag_match: list[str] = []
+    routes_to: str | None = None
+    personality: dict = {}
+    daily_token_budget: int = 0
+    max_headcount: int | None = None
+    builtin: bool = False
+
+
+class RoleCreate(BaseModel):
+    id: str
+    type: Literal["manager", "lead", "solver", "observer"]
+    responsibilities: str
+    constraints: str = ""
+    tools: list[str] = []
+    tag_match: list[str] = []
+    routes_to: str | None = None
+    personality: dict = {}
+    daily_token_budget: int = 0
+    max_headcount: int | None = None
+
+
+class RolePatch(BaseModel):
+    type: str | None = None
+    responsibilities: str | None = None
+    constraints: str | None = None
+    tools: list[str] | None = None
+    tag_match: list[str] | None = None
+    routes_to: str | None = None
+    personality: dict | None = None
+    daily_token_budget: int | None = None
+    max_headcount: int | None = None
+
+
+@router.get("/config/roles", dependencies=[Depends(verify_api_key)])
+async def api_list_roles() -> list[RoleOut]:
+    from opencompany.company.config import load_company_config
+
+    config = load_company_config()
+    return [
+        RoleOut(id=role_id, **{k: v for k, v in role.items() if k in RoleOut.model_fields})
+        for role_id, role in config.roles.items()
+    ]
+
+
+@router.post("/config/roles", status_code=201, dependencies=[Depends(verify_api_key)])
+async def api_create_role(body: RoleCreate) -> RoleOut:
+    from opencompany.company.config import add_role, update_role
+
+    try:
+        add_role(
+            role_id=body.id,
+            role_type=body.type,
+            responsibilities=body.responsibilities,
+            constraints=body.constraints,
+            tools=body.tools,
+            tag_match=body.tag_match,
+            routes_to=body.routes_to,
+        )
+        extras = {}
+        if body.personality:
+            extras["personality"] = body.personality
+        if body.daily_token_budget:
+            extras["daily_token_budget"] = body.daily_token_budget
+        if body.max_headcount is not None:
+            extras["max_headcount"] = body.max_headcount
+        if extras:
+            update_role(body.id, extras)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from None
+    return RoleOut(**body.model_dump())
+
+
+@router.patch("/config/roles/{role_id}", dependencies=[Depends(verify_api_key)])
+async def api_patch_role(role_id: str, body: RolePatch) -> RoleOut:
+    from opencompany.company.config import load_company_config, update_role
+
+    updates = body.model_dump(exclude_unset=True)
+    try:
+        update_role(role_id, updates)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Role '{role_id}' not found") from None
+    config = load_company_config()
+    role = config.roles[role_id]
+    return RoleOut(id=role_id, **{k: v for k, v in role.items() if k in RoleOut.model_fields})
+
+
+@router.delete("/config/roles/{role_id}", dependencies=[Depends(verify_api_key)])
+async def api_delete_role(role_id: str, session: AsyncSession = Depends(get_session)):
+    from opencompany.company.config import delete_role
+
+    count = await session.scalar(
+        select(sa_func.count())
+        .select_from(Persona)
+        .where(Persona.role == role_id, Persona.status == "active")
+    )
+    if count and count > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete: {count} active persona(s) use role '{role_id}'",
+        )
+    try:
+        delete_role(role_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Role '{role_id}' not found") from None
+    return {"status": "deleted", "role_id": role_id}

@@ -1,0 +1,651 @@
+<style>
+.organigram {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+  background: var(--bg-deep, #06080f);
+}
+
+.organigram svg {
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+
+.organigram svg.panning {
+  cursor: grabbing;
+}
+
+.organigram .zoom-fit-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border, #1a2235);
+  border-radius: 6px;
+  background: var(--bg-panel, #0c1018);
+  color: var(--text-dim, #5a6a80);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  transition: border-color 0.2s, color 0.2s;
+  line-height: 1;
+}
+
+.organigram .zoom-fit-btn:hover {
+  border-color: var(--cyan, #00e5ff);
+  color: var(--cyan, #00e5ff);
+}
+
+.organigram .org-tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: var(--bg-card, #111822);
+  border: 1px solid var(--border-glow, #1e3a5f);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-family: var(--font-body, 'Outfit', sans-serif);
+  font-size: 12px;
+  color: var(--text-main, #d0d8e8);
+  max-width: 260px;
+  z-index: 20;
+  opacity: 0;
+  transition: opacity 0.15s;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.organigram .org-tooltip.visible {
+  opacity: 1;
+}
+
+.organigram .org-tooltip .tt-name {
+  font-weight: 600;
+  color: var(--text-bright, #f0f4fa);
+  margin-bottom: 2px;
+}
+
+.organigram .org-tooltip .tt-role {
+  color: var(--text-dim, #5a6a80);
+  margin-bottom: 4px;
+}
+
+.organigram .org-tooltip .tt-tickets {
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 11px;
+  color: var(--cyan, #00e5ff);
+}
+
+.organigram .org-tooltip .tt-tickets div {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+</style>
+
+<div class="organigram">
+  <svg id="org-svg"></svg>
+  <button class="zoom-fit-btn" id="org-zoom-fit" title="Zoom to fit">&#x2922;</button>
+  <div class="org-tooltip" id="org-tooltip">
+    <div class="tt-name"></div>
+    <div class="tt-role"></div>
+    <div class="tt-tickets"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ── Constants ──────────────────────────────────── */
+  const NODE_W = 140;
+  const NODE_H = 56;
+  const GAP_X  = 30;
+  const GAP_Y  = 70;
+
+  const TYPE_COLORS = {
+    manager:  'var(--cyan, #00e5ff)',
+    lead:     'var(--purple, #a78bfa)',
+    solver:   'var(--amber, #ffb020)',
+    observer: 'var(--blue, #60a5fa)',
+    reviewer: 'var(--purple, #a78bfa)',
+  };
+
+  const STATE_COLORS = {
+    working: 'var(--green, #39ff8a)',
+    idle:    'var(--amber, #ffb020)',
+    blocked: 'var(--red, #ff4060)',
+  };
+
+  /* ── Pan / zoom state ───────────────────────────── */
+  let tx = 0, ty = 0, scale = 1;
+  let isPanning = false, panStartX = 0, panStartY = 0, panTxStart = 0, panTyStart = 0;
+  let treeRoot = null;
+  let svgEl = null;
+  let gTransform = null;
+  let tooltipEl = null;
+  let containerEl = null;
+  let boundHandlers = {};
+
+  /* ── Helpers ────────────────────────────────────── */
+  function svgNS(tag) {
+    return document.createElementNS('http://www.w3.org/2000/svg', tag);
+  }
+
+  function setAttr(el, attrs) {
+    for (const [k, v] of Object.entries(attrs)) {
+      el.setAttribute(k, v);
+    }
+    return el;
+  }
+
+  function clearChildren(el) {
+    while (el.firstChild) {
+      el.removeChild(el.firstChild);
+    }
+  }
+
+  function applyTransform() {
+    if (gTransform) {
+      gTransform.setAttribute('transform', 'translate(' + tx + ',' + ty + ') scale(' + scale + ')');
+    }
+  }
+
+  /* ── Tree building ──────────────────────────────── */
+  function buildTree(personas) {
+    const map = {};
+    personas.forEach(function (p) {
+      map[p.id] = { persona: p, children: [], x: 0, y: 0, subtreeWidth: 0 };
+    });
+
+    const roots = [];
+    personas.forEach(function (p) {
+      var node = map[p.id];
+      if (p.reports_to && map[p.reports_to]) {
+        map[p.reports_to].children.push(node);
+      } else {
+        roots.push(node);
+      }
+    });
+
+    if (roots.length === 0) return null;
+    if (roots.length === 1) return roots[0];
+
+    return {
+      persona: null,
+      children: roots,
+      x: 0,
+      y: 0,
+      subtreeWidth: 0,
+      isVirtual: true,
+    };
+  }
+
+  /* ── Layout ─────────────────────────────────────── */
+  function measureSubtree(node) {
+    if (node.children.length === 0) {
+      node.subtreeWidth = NODE_W;
+      return;
+    }
+    node.children.forEach(measureSubtree);
+    var totalChildWidth = node.children.reduce(function (s, c) { return s + c.subtreeWidth; }, 0)
+      + GAP_X * (node.children.length - 1);
+    node.subtreeWidth = Math.max(NODE_W, totalChildWidth);
+  }
+
+  function positionNodes(node, left, depth) {
+    var isVirtual = node.isVirtual;
+    if (node.children.length === 0) {
+      node.x = left + (node.subtreeWidth - NODE_W) / 2;
+      node.y = depth * (NODE_H + GAP_Y);
+      return;
+    }
+
+    var childrenTotalWidth = node.children.reduce(function (s, c) { return s + c.subtreeWidth; }, 0)
+      + GAP_X * (node.children.length - 1);
+    var childLeft = left + (node.subtreeWidth - childrenTotalWidth) / 2;
+
+    var childDepth = isVirtual ? depth : depth + 1;
+    node.children.forEach(function (child) {
+      positionNodes(child, childLeft, childDepth);
+      childLeft += child.subtreeWidth + GAP_X;
+    });
+
+    if (!isVirtual) {
+      var firstChild = node.children[0];
+      var lastChild = node.children[node.children.length - 1];
+      node.x = (firstChild.x + lastChild.x + NODE_W) / 2 - NODE_W / 2;
+      node.y = depth * (NODE_H + GAP_Y);
+    }
+  }
+
+  /* ── SVG rendering ─────────────────────────────── */
+  function renderEdges(g, node) {
+    if (node.isVirtual) {
+      node.children.forEach(function (c) { renderEdges(g, c); });
+      return;
+    }
+
+    var px = node.x + NODE_W / 2;
+    var py = node.y + NODE_H;
+
+    node.children.forEach(function (child) {
+      var cx = child.x + NODE_W / 2;
+      var cy = child.y;
+      var midY = (py + cy) / 2;
+
+      var path = svgNS('path');
+      setAttr(path, {
+        d: 'M ' + px + ' ' + py + ' C ' + px + ' ' + midY + ', ' + cx + ' ' + midY + ', ' + cx + ' ' + cy,
+        fill: 'none',
+        stroke: 'var(--border, #1a2235)',
+        'stroke-width': '1.5',
+        'stroke-opacity': '0.6',
+      });
+      g.appendChild(path);
+
+      renderEdges(g, child);
+    });
+  }
+
+  function renderNode(g, node, ticketMap) {
+    if (node.isVirtual) {
+      node.children.forEach(function (c) { renderNode(g, c, ticketMap); });
+      return;
+    }
+
+    var p = node.persona;
+    var isFired = p.status === 'fired';
+    var typeColor = TYPE_COLORS[p.type] || TYPE_COLORS.solver;
+    var stateColor = STATE_COLORS[isFired ? 'blocked' : (p.activity_state || 'idle')];
+    var activeTickets = ticketMap[p.id] || [];
+    var ticketCount = activeTickets.length;
+
+    var group = svgNS('g');
+    group.setAttribute('transform', 'translate(' + node.x + ', ' + node.y + ')');
+    group.style.cursor = 'pointer';
+    if (isFired) group.style.opacity = '0.35';
+
+    // Node background
+    var rect = svgNS('rect');
+    setAttr(rect, {
+      x: 0, y: 0, width: NODE_W, height: NODE_H,
+      rx: 8, ry: 8,
+      fill: 'var(--bg-card, #111822)',
+      stroke: typeColor,
+      'stroke-width': '1.5',
+    });
+    group.appendChild(rect);
+
+    // Avatar circle
+    var avatar = svgNS('circle');
+    setAttr(avatar, {
+      cx: 22, cy: NODE_H / 2,
+      r: 14,
+      fill: typeColor,
+      'fill-opacity': '0.15',
+      stroke: typeColor,
+      'stroke-width': '1.5',
+    });
+    group.appendChild(avatar);
+
+    // Avatar initial
+    var initial = svgNS('text');
+    setAttr(initial, {
+      x: 22, y: NODE_H / 2 + 1,
+      'text-anchor': 'middle',
+      'dominant-baseline': 'central',
+      fill: typeColor,
+      'font-family': "var(--font-display, 'Orbitron', monospace)",
+      'font-size': '12',
+      'font-weight': '700',
+    });
+    initial.textContent = (p.name || '?')[0].toUpperCase();
+    group.appendChild(initial);
+
+    // Name text
+    var nameEl = svgNS('text');
+    setAttr(nameEl, {
+      x: 44, y: 20,
+      fill: 'var(--text-bright, #f0f4fa)',
+      'font-family': "var(--font-body, 'Outfit', sans-serif)",
+      'font-size': '11',
+      'font-weight': '600',
+    });
+    nameEl.textContent = truncate(p.name || p.id, 11);
+    group.appendChild(nameEl);
+
+    // Strikethrough for fired personas
+    if (isFired) {
+      var strike = svgNS('line');
+      setAttr(strike, {
+        x1: 44, y1: 18,
+        x2: 124, y2: 18,
+        stroke: 'var(--red, #ff4060)',
+        'stroke-width': '1',
+      });
+      group.appendChild(strike);
+    }
+
+    // Role text
+    var roleEl = svgNS('text');
+    setAttr(roleEl, {
+      x: 44, y: 36,
+      fill: 'var(--text-dim, #5a6a80)',
+      'font-family': "var(--font-body, 'Outfit', sans-serif)",
+      'font-size': '9',
+    });
+    roleEl.textContent = truncate(p.role || p.type, 13);
+    group.appendChild(roleEl);
+
+    // Activity state dot
+    var stateDot = svgNS('circle');
+    setAttr(stateDot, {
+      cx: NODE_W - 14, cy: 14,
+      r: 4,
+      fill: stateColor,
+    });
+    group.appendChild(stateDot);
+
+    // Ticket count badge
+    if (ticketCount > 0) {
+      var badgeG = svgNS('g');
+      badgeG.setAttribute('transform', 'translate(' + (NODE_W - 14) + ', ' + (NODE_H - 12) + ')');
+
+      var badgeBg = svgNS('rect');
+      setAttr(badgeBg, {
+        x: -10, y: -8, width: 20, height: 16,
+        rx: 8, ry: 8,
+        fill: typeColor,
+        'fill-opacity': '0.2',
+      });
+      badgeG.appendChild(badgeBg);
+
+      var badgeText = svgNS('text');
+      setAttr(badgeText, {
+        x: 0, y: 1,
+        'text-anchor': 'middle',
+        'dominant-baseline': 'central',
+        fill: typeColor,
+        'font-family': "var(--font-mono, 'JetBrains Mono', monospace)",
+        'font-size': '10',
+        'font-weight': '500',
+      });
+      badgeText.textContent = ticketCount;
+      badgeG.appendChild(badgeText);
+
+      group.appendChild(badgeG);
+    }
+
+    // Hover hit area (invisible rect for better hit detection)
+    var hitArea = svgNS('rect');
+    setAttr(hitArea, {
+      x: 0, y: 0, width: NODE_W, height: NODE_H,
+      fill: 'transparent',
+      'data-persona-id': p.id,
+    });
+    group.appendChild(hitArea);
+
+    // Events — capture persona and tickets in closure
+    (function (persona, tickets) {
+      group.addEventListener('mouseenter', function (e) { showTooltip(e, persona, tickets); });
+      group.addEventListener('mousemove', function (e) { moveTooltip(e); });
+      group.addEventListener('mouseleave', hideTooltip);
+      group.addEventListener('click', function (e) {
+        e.stopPropagation();
+        containerEl.dispatchEvent(new CustomEvent('show-detail', {
+          bubbles: true,
+          detail: { personaId: persona.id, persona: persona },
+        }));
+      });
+    })(p, activeTickets);
+
+    g.appendChild(group);
+
+    // Recurse children
+    node.children.forEach(function (c) { renderNode(g, c, ticketMap); });
+  }
+
+  function truncate(str, maxLen) {
+    if (!str) return '';
+    return str.length > maxLen ? str.slice(0, maxLen - 1) + '\u2026' : str;
+  }
+
+  /* ── Tooltip ────────────────────────────────────── */
+  function showTooltip(e, persona, tickets) {
+    if (!tooltipEl) return;
+    tooltipEl.querySelector('.tt-name').textContent = persona.name || persona.id;
+    tooltipEl.querySelector('.tt-role').textContent = persona.role || persona.type;
+
+    var ttTickets = tooltipEl.querySelector('.tt-tickets');
+    clearChildren(ttTickets);
+    if (tickets.length > 0) {
+      tickets.slice(0, 5).forEach(function (t) {
+        var div = document.createElement('div');
+        div.textContent = '#' + t.id + ' ' + t.title;
+        ttTickets.appendChild(div);
+      });
+    } else {
+      ttTickets.textContent = 'No active tickets';
+    }
+
+    tooltipEl.classList.add('visible');
+    moveTooltip(e);
+  }
+
+  function moveTooltip(e) {
+    if (!tooltipEl || !containerEl) return;
+    var rect = containerEl.getBoundingClientRect();
+    var left = e.clientX - rect.left + 14;
+    var top  = e.clientY - rect.top + 14;
+
+    var tw = tooltipEl.offsetWidth || 200;
+    var th = tooltipEl.offsetHeight || 80;
+    if (left + tw > rect.width) left = e.clientX - rect.left - tw - 8;
+    if (top + th > rect.height) top = e.clientY - rect.top - th - 8;
+
+    tooltipEl.style.left = left + 'px';
+    tooltipEl.style.top  = top + 'px';
+  }
+
+  function hideTooltip() {
+    if (tooltipEl) tooltipEl.classList.remove('visible');
+  }
+
+  /* ── Zoom to fit ────────────────────────────────── */
+  function zoomToFit() {
+    if (!treeRoot || !svgEl) return;
+
+    var bounds = getTreeBounds(treeRoot);
+    if (!bounds) return;
+
+    var svgRect = svgEl.getBoundingClientRect();
+    var padding = 40;
+
+    var contentW = bounds.maxX - bounds.minX + NODE_W + padding * 2;
+    var contentH = bounds.maxY - bounds.minY + NODE_H + padding * 2;
+
+    var scaleX = svgRect.width / contentW;
+    var scaleY = svgRect.height / contentH;
+    scale = Math.min(scaleX, scaleY, 3);
+    scale = Math.max(scale, 0.2);
+
+    var centerX = (bounds.minX + bounds.maxX + NODE_W) / 2;
+    var centerY = (bounds.minY + bounds.maxY + NODE_H) / 2;
+
+    tx = svgRect.width / 2 - centerX * scale;
+    ty = svgRect.height / 2 - centerY * scale;
+
+    applyTransform();
+  }
+
+  function getTreeBounds(node) {
+    if (!node) return null;
+
+    if (node.isVirtual) {
+      var result = null;
+      node.children.forEach(function (c) {
+        var cb = getTreeBounds(c);
+        if (!cb) return;
+        if (!result) { result = { minX: cb.minX, minY: cb.minY, maxX: cb.maxX, maxY: cb.maxY }; return; }
+        result.minX = Math.min(result.minX, cb.minX);
+        result.minY = Math.min(result.minY, cb.minY);
+        result.maxX = Math.max(result.maxX, cb.maxX);
+        result.maxY = Math.max(result.maxY, cb.maxY);
+      });
+      return result;
+    }
+
+    var bounds = { minX: node.x, minY: node.y, maxX: node.x, maxY: node.y };
+    node.children.forEach(function (c) {
+      var cb = getTreeBounds(c);
+      if (!cb) return;
+      bounds.minX = Math.min(bounds.minX, cb.minX);
+      bounds.minY = Math.min(bounds.minY, cb.minY);
+      bounds.maxX = Math.max(bounds.maxX, cb.maxX);
+      bounds.maxY = Math.max(bounds.maxY, cb.maxY);
+    });
+    return bounds;
+  }
+
+  /* ── Pan handlers ───────────────────────────────── */
+  function onMouseDown(e) {
+    if (e.target.closest('g[style*="cursor"]')) return;
+    isPanning = true;
+    panStartX = e.clientX;
+    panStartY = e.clientY;
+    panTxStart = tx;
+    panTyStart = ty;
+    svgEl.classList.add('panning');
+  }
+
+  function onMouseMove(e) {
+    if (!isPanning) return;
+    tx = panTxStart + (e.clientX - panStartX);
+    ty = panTyStart + (e.clientY - panStartY);
+    applyTransform();
+  }
+
+  function onMouseUp() {
+    isPanning = false;
+    if (svgEl) svgEl.classList.remove('panning');
+  }
+
+  function onWheel(e) {
+    e.preventDefault();
+    var rect = svgEl.getBoundingClientRect();
+    var mx = e.clientX - rect.left;
+    var my = e.clientY - rect.top;
+
+    var oldScale = scale;
+    var delta = e.deltaY > 0 ? 0.9 : 1.1;
+    scale = Math.max(0.2, Math.min(3, scale * delta));
+
+    // Zoom toward cursor
+    tx = mx - (mx - tx) * (scale / oldScale);
+    ty = my - (my - ty) * (scale / oldScale);
+
+    applyTransform();
+  }
+
+  /* ── View registry ──────────────────────────────── */
+  function init() {
+    containerEl = document.querySelector('.organigram');
+    svgEl = document.getElementById('org-svg');
+    tooltipEl = document.getElementById('org-tooltip');
+
+    if (!svgEl || !containerEl) return;
+
+    boundHandlers.mousedown = onMouseDown;
+    boundHandlers.mousemove = onMouseMove;
+    boundHandlers.mouseup = onMouseUp;
+    boundHandlers.wheel = onWheel;
+
+    svgEl.addEventListener('mousedown', boundHandlers.mousedown);
+    window.addEventListener('mousemove', boundHandlers.mousemove);
+    window.addEventListener('mouseup', boundHandlers.mouseup);
+    svgEl.addEventListener('wheel', boundHandlers.wheel, { passive: false });
+
+    var fitBtn = document.getElementById('org-zoom-fit');
+    if (fitBtn) fitBtn.addEventListener('click', zoomToFit);
+  }
+
+  function render(data) {
+    if (!svgEl) return;
+    var personas = data.personas || [];
+    var tickets  = data.tickets  || [];
+
+    // Build ticket map: personaId -> active tickets
+    var ticketMap = {};
+    tickets.forEach(function (t) {
+      if (t.assigned_to && ['assigned', 'in_progress'].indexOf(t.status) !== -1) {
+        if (!ticketMap[t.assigned_to]) ticketMap[t.assigned_to] = [];
+        ticketMap[t.assigned_to].push(t);
+      }
+    });
+
+    // Build and layout tree
+    treeRoot = buildTree(personas);
+    if (!treeRoot) {
+      clearChildren(svgEl);
+      return;
+    }
+
+    measureSubtree(treeRoot);
+    positionNodes(treeRoot, 0, 0);
+
+    // Render SVG
+    clearChildren(svgEl);
+
+    gTransform = svgNS('g');
+    gTransform.setAttribute('id', 'org-transform');
+
+    // Edges first (behind nodes)
+    var edgeGroup = svgNS('g');
+    edgeGroup.setAttribute('class', 'org-edges');
+    renderEdges(edgeGroup, treeRoot);
+    gTransform.appendChild(edgeGroup);
+
+    // Nodes
+    var nodeGroup = svgNS('g');
+    nodeGroup.setAttribute('class', 'org-nodes');
+    renderNode(nodeGroup, treeRoot, ticketMap);
+    gTransform.appendChild(nodeGroup);
+
+    svgEl.appendChild(gTransform);
+
+    // Apply current transform (preserve pan/zoom across re-renders)
+    applyTransform();
+
+    // Auto zoom-to-fit on first render
+    if (tx === 0 && ty === 0 && scale === 1) {
+      requestAnimationFrame(zoomToFit);
+    }
+  }
+
+  function destroy() {
+    if (svgEl) {
+      svgEl.removeEventListener('mousedown', boundHandlers.mousedown);
+      svgEl.removeEventListener('wheel', boundHandlers.wheel);
+    }
+    window.removeEventListener('mousemove', boundHandlers.mousemove);
+    window.removeEventListener('mouseup', boundHandlers.mouseup);
+
+    tx = 0;
+    ty = 0;
+    scale = 1;
+    isPanning = false;
+    treeRoot = null;
+    gTransform = null;
+    boundHandlers = {};
+  }
+
+  /* ── Register ───────────────────────────────────── */
+  if (!window.viewRegistry) window.viewRegistry = {};
+  window.viewRegistry['organigram'] = { init: init, render: render, destroy: destroy };
+})();
+</script>

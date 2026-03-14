@@ -226,9 +226,8 @@ def test_load_real_company_yaml():
     assert "hr" in config.roles
     assert config.roles["ceo"].get("builtin") is True
     assert config.roles["hr"].get("builtin") is True
-    # Only CEO + HR in personas section
-    assert "ceo" in config.personas
-    assert "hr" in config.personas
+    # personas section is empty (personas are seeded from roles at startup)
+    assert config.personas == {}
     # Roles have required fields
     for role_id, role in config.roles.items():
         assert "type" in role, f"Role {role_id} missing 'type'"

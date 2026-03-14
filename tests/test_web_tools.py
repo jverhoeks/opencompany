@@ -61,6 +61,8 @@ def test_web_fetch_handles_timeout(monkeypatch):
         raise urllib.error.URLError("timed out")
 
     monkeypatch.setattr(urllib.request, "urlopen", raise_timeout)
+    # Also patch _is_internal_ip so DNS resolution doesn't fail first
+    monkeypatch.setattr("opencompany.agents.tools.web._is_internal_ip", lambda h: False)
 
     from opencompany.agents.tools.web import web_fetch
 
