@@ -1,0 +1,469 @@
+<style>
+/* ── Kanban view ─────────────────────────────────── */
+.kanban-view {
+  display: flex; flex-direction: column; height: 100%; overflow: hidden;
+}
+
+/* ── Filters bar ─────────────────────────────────── */
+.kanban-filters {
+  display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+  border-bottom: 1px solid var(--border); background: var(--bg-panel);
+  flex-shrink: 0;
+}
+.kanban-filter-label {
+  font-family: var(--font-display); font-size: 9px; letter-spacing: 1.5px;
+  text-transform: uppercase; color: var(--text-dim);
+}
+.kanban-filter-select,
+.kanban-filter-input {
+  font-family: var(--font-mono); font-size: 11px; padding: 4px 8px;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px;
+  color: var(--text-main); outline: none; transition: border 0.15s;
+}
+.kanban-filter-select:focus,
+.kanban-filter-input:focus {
+  border-color: var(--cyan);
+}
+.kanban-filter-input {
+  width: 120px;
+}
+.kanban-filter-input::placeholder {
+  color: var(--text-dim);
+}
+
+/* ── Columns area ────────────────────────────────── */
+.kanban-columns {
+  flex: 1; display: grid; grid-template-columns: repeat(5, 1fr);
+  gap: 1px; padding: 12px; min-height: 0; overflow-y: auto;
+}
+.kanban-col {
+  display: flex; flex-direction: column; gap: 8px; min-width: 0;
+}
+.kanban-col-header {
+  font-family: var(--font-display); font-size: 9px; letter-spacing: 1.5px;
+  text-transform: uppercase; color: var(--text-dim); padding: 6px 8px;
+  display: flex; align-items: center; justify-content: space-between;
+  position: sticky; top: 0; background: var(--bg-deep); z-index: 1;
+}
+.kanban-col-count {
+  font-family: var(--font-mono); font-size: 10px; background: var(--bg-card);
+  padding: 1px 6px; border-radius: 3px;
+}
+
+/* ── Ticket card ─────────────────────────────────── */
+.kanban-card {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px;
+  padding: 10px; transition: all 0.15s; cursor: pointer;
+}
+.kanban-card:hover {
+  border-color: var(--cyan); transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 229, 255, 0.08);
+}
+.kanban-card-title {
+  font-size: 12px; font-weight: 500; color: var(--text-bright);
+  margin-bottom: 6px; line-height: 1.4;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.kanban-card-meta {
+  display: flex; align-items: center; gap: 5px; flex-wrap: wrap;
+}
+
+/* Priority badge */
+.kanban-priority {
+  font-family: var(--font-mono); font-size: 9px; padding: 1px 5px;
+  border-radius: 3px; font-weight: 600; text-transform: uppercase;
+}
+.kanban-priority.high,
+.kanban-priority.critical {
+  background: rgba(255, 176, 32, 0.15); color: var(--amber);
+}
+.kanban-priority.medium {
+  background: rgba(0, 229, 255, 0.12); color: var(--cyan);
+}
+.kanban-priority.low {
+  background: rgba(90, 106, 128, 0.2); color: var(--text-dim);
+}
+
+/* Tag pills */
+.kanban-tag {
+  font-family: var(--font-mono); font-size: 9px; padding: 1px 5px;
+  border-radius: 3px; background: rgba(0, 229, 255, 0.1); color: var(--cyan);
+}
+
+/* Assignee */
+.kanban-assignee {
+  font-size: 10px; color: var(--text-dim); margin-left: auto;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 80px;
+}
+
+/* Token usage bar */
+.kanban-token-bar-wrap {
+  width: 100%; height: 3px; background: var(--bg-deep); border-radius: 2px;
+  overflow: hidden; margin-top: 6px;
+}
+.kanban-token-bar-fill {
+  height: 100%; border-radius: 2px; transition: width 0.3s;
+}
+.kanban-token-label {
+  font-family: var(--font-mono); font-size: 8px; color: var(--text-dim);
+  margin-top: 2px;
+}
+
+/* Empty column placeholder */
+.kanban-empty {
+  font-size: 11px; color: var(--text-dim); text-align: center;
+  padding: 20px 8px; opacity: 0.5;
+}
+
+/* ── Collapsed section ───────────────────────────── */
+.kanban-collapsed {
+  flex-shrink: 0; border-top: 1px solid var(--border);
+  margin: 0 12px 12px;
+}
+.kanban-collapsed summary {
+  font-family: var(--font-display); font-size: 9px; letter-spacing: 1.5px;
+  text-transform: uppercase; color: var(--text-dim); padding: 8px 4px;
+  cursor: pointer; user-select: none;
+  list-style: none;
+}
+.kanban-collapsed summary::-webkit-details-marker {
+  display: none;
+}
+.kanban-collapsed summary::before {
+  content: '\25B6'; margin-right: 6px; font-size: 8px;
+  display: inline-block; transition: transform 0.15s;
+}
+.kanban-collapsed[open] summary::before {
+  transform: rotate(90deg);
+}
+.kanban-collapsed-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px; padding: 4px 0 8px;
+}
+.kanban-collapsed-card {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px 10px; opacity: 0.6; cursor: pointer; transition: all 0.15s;
+}
+.kanban-collapsed-card:hover {
+  opacity: 0.9; border-color: var(--border);
+}
+.kanban-collapsed-title {
+  font-size: 11px; color: var(--text-dim); line-height: 1.3;
+  display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.kanban-collapsed-status {
+  font-family: var(--font-mono); font-size: 9px; padding: 1px 5px;
+  border-radius: 3px; background: rgba(90, 106, 128, 0.15); color: var(--text-dim);
+  margin-left: 6px;
+}
+
+/* Fade-in for cards */
+@keyframes kanbanFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.kanban-fade { animation: kanbanFadeIn 0.2s ease forwards; }
+</style>
+
+<div class="kanban-view" id="kanbanView">
+  <!-- Filters -->
+  <div class="kanban-filters">
+    <span class="kanban-filter-label">Persona</span>
+    <select class="kanban-filter-select" id="kanbanFilterPersona">
+      <option value="">All</option>
+    </select>
+    <span class="kanban-filter-label">Priority</span>
+    <select class="kanban-filter-select" id="kanbanFilterPriority">
+      <option value="">All</option>
+      <option value="critical">Critical</option>
+      <option value="high">High</option>
+      <option value="medium">Medium</option>
+      <option value="low">Low</option>
+    </select>
+    <span class="kanban-filter-label">Tag</span>
+    <input class="kanban-filter-input" id="kanbanFilterTag" type="text" placeholder="filter by tag" />
+  </div>
+
+  <!-- 5 status columns -->
+  <div class="kanban-columns" id="kanbanColumns"></div>
+
+  <!-- Collapsed Rejected / Closed -->
+  <details class="kanban-collapsed" id="kanbanCollapsed">
+    <summary id="kanbanCollapsedSummary">Rejected / Closed (0)</summary>
+    <div class="kanban-collapsed-grid" id="kanbanCollapsedGrid"></div>
+  </details>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ── Text escaping helper (no DOMPurify) ────────
+     Create a temp element, set textContent, read innerHTML.
+     This safely escapes &, <, >, ", ' for embedding in HTML. */
+  var _escEl = document.createElement('div');
+  function esc(text) {
+    _escEl.textContent = String(text == null ? '' : text);
+    return _escEl.innerHTML;
+  }
+
+  /* ── Token formatter ───────────────────────────── */
+  function fmtTokens(n) {
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+    return String(n);
+  }
+
+  /* ── Column definitions ────────────────────────── */
+  var COLUMNS = [
+    { key: 'open',        label: 'Open',        statuses: ['open'] },
+    { key: 'assigned',    label: 'Assigned',     statuses: ['assigned'] },
+    { key: 'in_progress', label: 'In Progress',  statuses: ['in_progress'] },
+    { key: 'review',      label: 'Review',       statuses: ['review'] },
+    { key: 'done',        label: 'Done',         statuses: ['done'] },
+  ];
+
+  var COLLAPSED_STATUSES = ['rejected', 'closed'];
+
+  /* ── DOM refs ──────────────────────────────────── */
+  var columnsEl       = document.getElementById('kanbanColumns');
+  var collapsedEl     = document.getElementById('kanbanCollapsed');
+  var collapsedSumEl  = document.getElementById('kanbanCollapsedSummary');
+  var collapsedGridEl = document.getElementById('kanbanCollapsedGrid');
+  var filterPersonaEl = document.getElementById('kanbanFilterPersona');
+  var filterPriorityEl= document.getElementById('kanbanFilterPriority');
+  var filterTagEl     = document.getElementById('kanbanFilterTag');
+
+  /* ── Persona map (id -> name) ──────────────────── */
+  var personaMap = {};
+
+  /* ── Filter helpers ────────────────────────────── */
+  function getFilters() {
+    return {
+      persona:  filterPersonaEl.value,
+      priority: filterPriorityEl.value,
+      tag:      filterTagEl.value.trim().toLowerCase(),
+    };
+  }
+
+  function applyFilter(tickets) {
+    var f = getFilters();
+    return tickets.filter(function (t) {
+      if (f.persona && t.assigned_to !== f.persona && t.created_by !== f.persona) return false;
+      if (f.priority && (t.priority || 'medium') !== f.priority) return false;
+      if (f.tag) {
+        var tags = (t.tags || []).map(function (s) { return s.toLowerCase(); });
+        if (!tags.some(function (tg) { return tg.indexOf(f.tag) !== -1; })) return false;
+      }
+      return true;
+    });
+  }
+
+  /* ── Build a single ticket card (escaped HTML) ── */
+  function buildCard(ticket) {
+    var priority = ticket.priority || 'medium';
+    var tokensUsed = (ticket.tokens_in || 0) + (ticket.tokens_out || 0);
+    var budgetTokens = ticket.budget_tokens || 0;
+    var assigneeName = ticket.assigned_to
+      ? (personaMap[ticket.assigned_to] || ticket.assigned_to)
+      : '';
+
+    var parts = [];
+    parts.push('<div class="kanban-card kanban-fade" data-ticket-id="' + esc(String(ticket.id)) + '">');
+    parts.push('<div class="kanban-card-title">' + esc(ticket.title) + '</div>');
+    parts.push('<div class="kanban-card-meta">');
+
+    // Priority badge
+    parts.push('<span class="kanban-priority ' + esc(priority) + '">' + esc(priority) + '</span>');
+
+    // Tag pills (max 3)
+    var tags = ticket.tags || [];
+    for (var i = 0; i < Math.min(tags.length, 3); i++) {
+      parts.push('<span class="kanban-tag">' + esc(tags[i]) + '</span>');
+    }
+
+    // Assigned persona
+    if (assigneeName) {
+      parts.push('<span class="kanban-assignee">' + esc(assigneeName) + '</span>');
+    }
+
+    parts.push('</div>'); // .kanban-card-meta
+
+    // Token usage bar (tokens_in + tokens_out vs budget_tokens)
+    if (budgetTokens > 0) {
+      var pct = Math.min(100, Math.round(tokensUsed / budgetTokens * 100));
+      var barColor = pct >= 90 ? 'var(--red)' : pct >= 70 ? 'var(--amber)' : 'var(--green)';
+      parts.push('<div class="kanban-token-bar-wrap">');
+      parts.push('<div class="kanban-token-bar-fill" style="width:' + pct + '%;background:' + barColor + '"></div>');
+      parts.push('</div>');
+      parts.push('<div class="kanban-token-label">' + esc(fmtTokens(tokensUsed)) + ' / ' + esc(fmtTokens(budgetTokens)) + '</div>');
+    } else if (tokensUsed > 0) {
+      parts.push('<div class="kanban-token-label">' + esc(fmtTokens(tokensUsed)) + ' tokens</div>');
+    }
+
+    parts.push('</div>'); // .kanban-card
+    return parts.join('');
+  }
+
+  /* ── Render the 5 status columns ───────────────── */
+  function renderColumns(data) {
+    var allTickets = data.tickets || [];
+    var filtered = applyFilter(allTickets);
+
+    var parts = [];
+    COLUMNS.forEach(function (col) {
+      var colTickets = filtered.filter(function (t) {
+        return col.statuses.indexOf(t.status) !== -1;
+      });
+
+      parts.push('<div class="kanban-col">');
+      parts.push('<div class="kanban-col-header">');
+      parts.push('<span>' + esc(col.label) + '</span>');
+      parts.push('<span class="kanban-col-count">' + colTickets.length + '</span>');
+      parts.push('</div>');
+
+      if (colTickets.length === 0) {
+        parts.push('<div class="kanban-empty">No tickets</div>');
+      } else {
+        colTickets.forEach(function (t) {
+          parts.push(buildCard(t));
+        });
+      }
+
+      parts.push('</div>'); // .kanban-col
+    });
+
+    columnsEl.textContent = '';
+    columnsEl.insertAdjacentHTML('afterbegin', parts.join(''));
+
+    // Attach click handlers via delegation-free loop (cards are few)
+    var cards = columnsEl.querySelectorAll('.kanban-card');
+    for (var ci = 0; ci < cards.length; ci++) {
+      (function (card) {
+        card.addEventListener('click', function () {
+          var id = card.getAttribute('data-ticket-id');
+          var ticket = allTickets.find(function (t) { return String(t.id) === id; });
+          if (ticket) {
+            window.dispatchEvent(new CustomEvent('show-detail', {
+              detail: { type: 'ticket', data: ticket }
+            }));
+          }
+        });
+      })(cards[ci]);
+    }
+  }
+
+  /* ── Render collapsed Rejected / Closed section ── */
+  function renderCollapsed(data) {
+    var allTickets = data.tickets || [];
+    var collapsed = applyFilter(allTickets).filter(function (t) {
+      return COLLAPSED_STATUSES.indexOf(t.status) !== -1;
+    });
+
+    collapsedSumEl.textContent = 'Rejected / Closed (' + collapsed.length + ')';
+
+    if (collapsed.length === 0) {
+      collapsedEl.style.display = 'none';
+      return;
+    }
+    collapsedEl.style.display = '';
+
+    var parts = [];
+    collapsed.forEach(function (t) {
+      parts.push('<div class="kanban-collapsed-card" data-ticket-id="' + esc(String(t.id)) + '">');
+      parts.push('<span class="kanban-collapsed-title">' + esc(t.title) + '</span>');
+      parts.push('<span class="kanban-collapsed-status">' + esc(t.status) + '</span>');
+      parts.push('</div>');
+    });
+
+    collapsedGridEl.textContent = '';
+    collapsedGridEl.insertAdjacentHTML('afterbegin', parts.join(''));
+
+    // Click handlers for collapsed cards
+    var cards = collapsedGridEl.querySelectorAll('.kanban-collapsed-card');
+    for (var ci = 0; ci < cards.length; ci++) {
+      (function (card) {
+        card.addEventListener('click', function () {
+          var id = card.getAttribute('data-ticket-id');
+          var ticket = allTickets.find(function (t) { return String(t.id) === id; });
+          if (ticket) {
+            window.dispatchEvent(new CustomEvent('show-detail', {
+              detail: { type: 'ticket', data: ticket }
+            }));
+          }
+        });
+      })(cards[ci]);
+    }
+  }
+
+  /* ── Populate persona filter dropdown ──────────── */
+  function populatePersonaFilter(personas) {
+    var prev = filterPersonaEl.value;
+    var parts = ['<option value="">All</option>'];
+    (personas || []).forEach(function (p) {
+      parts.push('<option value="' + esc(p.id) + '">' + esc(p.name) + '</option>');
+    });
+    filterPersonaEl.textContent = '';
+    filterPersonaEl.insertAdjacentHTML('afterbegin', parts.join(''));
+    // Restore previous selection if still valid
+    if (prev) {
+      for (var i = 0; i < filterPersonaEl.options.length; i++) {
+        if (filterPersonaEl.options[i].value === prev) {
+          filterPersonaEl.value = prev;
+          break;
+        }
+      }
+    }
+  }
+
+  /* ── Full render (called from view registry) ──── */
+  function fullRender(data) {
+    // Build persona lookup
+    personaMap = {};
+    (data.personas || []).forEach(function (p) {
+      personaMap[p.id] = p.name;
+    });
+
+    populatePersonaFilter(data.personas);
+    renderColumns(data);
+    renderCollapsed(data);
+  }
+
+  /* ── Re-render from cached data (filter changes) ─ */
+  function rerender() {
+    if (window._cachedData) {
+      fullRender(window._cachedData);
+    }
+  }
+
+  /* ── Filter event listeners ────────────────────── */
+  function initFilters() {
+    filterPersonaEl.addEventListener('change', rerender);
+    filterPriorityEl.addEventListener('change', rerender);
+    filterTagEl.addEventListener('input', rerender);
+  }
+
+  function destroyFilters() {
+    filterPersonaEl.removeEventListener('change', rerender);
+    filterPriorityEl.removeEventListener('change', rerender);
+    filterTagEl.removeEventListener('input', rerender);
+  }
+
+  /* ── Register into window.viewRegistry ──────────── */
+  window.viewRegistry = window.viewRegistry || {};
+  window.viewRegistry['kanban'] = {
+    init: function () {
+      initFilters();
+    },
+    render: function (data) {
+      fullRender(data);
+    },
+    destroy: function () {
+      destroyFilters();
+    }
+  };
+})();
+</script>
