@@ -6,12 +6,13 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
+from sqlalchemy import func as sa_func
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from opencompany.agents.runner import run_persona
 from opencompany.events.bus import publish
-from opencompany.models.db import Persona, Ticket
+from opencompany.models.db import Persona, Ticket, WorkLog
 from opencompany.models.engine import get_session
 
 logger = logging.getLogger(__name__)
@@ -231,6 +232,49 @@ async def api_reset_all_budgets():
 
     count = await reset_all_budgets()
     return {"status": "ok", "reset_count": count}
+
+
+# --- Efficiency metrics endpoint ---
+
+
+@router.get("/metrics/efficiency", dependencies=[Depends(verify_api_key)])
+async def api_efficiency_metrics(session: AsyncSession = Depends(get_session)):
+    """Per-persona efficiency metrics: tasks completed, tokens used, avg duration."""
+    q = (
+        select(
+            Persona.id,
+            Persona.name,
+            Persona.role,
+            sa_func.count(WorkLog.id).label("tasks_completed"),
+            sa_func.sum(Ticket.tokens_in + Ticket.tokens_out).label("total_tokens"),
+            sa_func.avg(WorkLog.duration_sec).label("avg_duration_sec"),
+        )
+        .join(WorkLog, WorkLog.persona_id == Persona.id)
+        .outerjoin(Ticket, WorkLog.ticket_id == Ticket.id)
+        .where(WorkLog.action.in_(["solved", "review", "done"]))
+        .group_by(Persona.id, Persona.name, Persona.role)
+        .order_by(sa_func.sum(Ticket.tokens_in + Ticket.tokens_out).desc().nulls_last())
+    )
+    result = await session.execute(q)
+    rows = result.all()
+
+    metrics = []
+    for row in rows:
+        total_tokens = row.total_tokens or 0
+        tasks = row.tasks_completed or 0
+        metrics.append(
+            {
+                "persona_id": row.id,
+                "name": row.name,
+                "role": row.role,
+                "tasks_completed": tasks,
+                "total_tokens": total_tokens,
+                "tokens_per_task": round(total_tokens / tasks) if tasks else 0,
+                "avg_duration_sec": round(row.avg_duration_sec or 0, 1),
+            }
+        )
+
+    return metrics
 
 
 # --- Reset endpoint ---
