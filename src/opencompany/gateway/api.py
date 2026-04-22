@@ -25,9 +25,15 @@ _bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def _auth_disabled_ok() -> bool:
-    """Allow disabled auth only in dev environments, refuse everywhere else."""
+    """Allow disabled auth only in dev environments, refuse everywhere else.
+
+    ``"test"`` is intentionally NOT in this set: test isolation should come
+    from fixtures that patch ``verify_api_key`` or inject an ``API_KEY``, not
+    from naming an environment ``ENVIRONMENT=test`` — some staging/canary
+    pipelines use that name in production-shaped deployments.
+    """
     env = os.environ.get("ENVIRONMENT", "").lower()
-    return env in {"", "dev", "development", "local", "test"}
+    return env in {"", "dev", "development", "local"}
 
 
 async def verify_api_key(
@@ -575,10 +581,16 @@ async def api_list_roles() -> list[RoleOut]:
 
 @router.post("/config/roles", status_code=201, dependencies=[Depends(verify_api_key)])
 async def api_create_role(body: RoleCreate) -> RoleOut:
+    import asyncio
+
     from opencompany.company.config import add_role, update_role
 
     try:
-        add_role(
+        # Route handlers run on the asyncio event loop; the config writers
+        # hold a blocking ``fcntl.flock`` and do synchronous disk I/O. Push
+        # to a worker thread so a slow flock/disk doesn't stall the loop.
+        await asyncio.to_thread(
+            add_role,
             role_id=body.id,
             role_type=body.type,
             responsibilities=body.responsibilities,
@@ -595,7 +607,7 @@ async def api_create_role(body: RoleCreate) -> RoleOut:
         if body.max_headcount is not None:
             extras["max_headcount"] = body.max_headcount
         if extras:
-            update_role(body.id, extras)
+            await asyncio.to_thread(update_role, body.id, extras)
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e)) from None
     return RoleOut(**body.model_dump())
@@ -603,11 +615,13 @@ async def api_create_role(body: RoleCreate) -> RoleOut:
 
 @router.patch("/config/roles/{role_id}", dependencies=[Depends(verify_api_key)])
 async def api_patch_role(role_id: str, body: RolePatch) -> RoleOut:
+    import asyncio
+
     from opencompany.company.config import load_company_config, update_role
 
     updates = body.model_dump(exclude_unset=True)
     try:
-        update_role(role_id, updates)
+        await asyncio.to_thread(update_role, role_id, updates)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Role '{role_id}' not found") from None
     config = load_company_config()
@@ -617,6 +631,8 @@ async def api_patch_role(role_id: str, body: RolePatch) -> RoleOut:
 
 @router.delete("/config/roles/{role_id}", dependencies=[Depends(verify_api_key)])
 async def api_delete_role(role_id: str, session: AsyncSession = Depends(get_session)):
+    import asyncio
+
     from opencompany.company.config import delete_role
 
     count = await session.scalar(
@@ -630,7 +646,7 @@ async def api_delete_role(role_id: str, session: AsyncSession = Depends(get_sess
             detail=f"Cannot delete: {count} active persona(s) use role '{role_id}'",
         )
     try:
-        delete_role(role_id)
+        await asyncio.to_thread(delete_role, role_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Role '{role_id}' not found") from None
     return {"status": "deleted", "role_id": role_id}
