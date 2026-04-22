@@ -109,7 +109,14 @@ def _build_policy_section(persona: Persona) -> str:
 
         return _run_async(build_policy_context(persona))
     except Exception:
-        logger.debug("Could not load policies for %s", persona.id, exc_info=True)
+        # Failing silently here means agents run without any policy
+        # constraints injected — including safety policies — and nobody
+        # sees it. Log loudly so on-call catches the degradation.
+        logger.warning(
+            "Could not load policies for %s — agent will run without policy context",
+            persona.id,
+            exc_info=True,
+        )
         return ""
 
 
@@ -123,9 +130,9 @@ def _build_personality_section(
         # Check persona-level personality first
         persona_cfg = config.personas.get(persona.id, {})
         personality = persona_cfg.get("personality") if persona_cfg else None
-        # Fall back to role-level personality
+        # Fall back to role-level personality (roles is keyed by role id, not persona id)
         if not personality:
-            role_cfg = config.roles.get(persona.id, {})
+            role_cfg = _get_role_config(persona, config)
             personality = role_cfg.get("personality") if role_cfg else None
     if not personality:
         return ""

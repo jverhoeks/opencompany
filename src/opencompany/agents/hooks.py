@@ -15,6 +15,16 @@ class CompanyHooks:
 
     Tracks token consumption per persona/ticket and publishes
     lifecycle events to the Redis bus.
+
+    .. warning::
+
+       ``on_invocation_complete`` consumes the same ``consume_tokens`` and
+       ``_add_ticket_tokens`` helpers that ``engine._run_inner`` calls when
+       an agent finishes. If you wire these hooks into the Strands ``Agent``,
+       you MUST drop the token-consume block in ``_run_inner`` or set a
+       sentinel on the ``AgentResult`` so one of the two paths short-circuits
+       — otherwise every invocation double-charges the persona's daily budget
+       and double-credits the ticket.
     """
 
     def __init__(self, persona_id: str, ticket_id: int | None = None):

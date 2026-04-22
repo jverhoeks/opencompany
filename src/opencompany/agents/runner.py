@@ -155,7 +155,35 @@ def create_agent(
             missing_tools.append(tool_name)
 
     if extra_tools:
-        resolved_tools.extend(extra_tools)
+        # extra_tools bypass the persona.tools list, so they must be run
+        # through the same trust-tier filter. A tool object's identifier lives
+        # on one of several attributes depending on whether it was decorated
+        # via strands @tool or bound by _bind_persona_id. Tools without a
+        # discoverable name are let through (and logged) — they're typically
+        # internal bindings that the caller is expected to have already vetted.
+        extra_names = [
+            getattr(t, "tool_name", None) or getattr(t, "name", None) or getattr(t, "__name__", "")
+            for t in extra_tools
+        ]
+        nameable = [(t, n) for t, n in zip(extra_tools, extra_names, strict=True) if n]
+        unnameable = [t for t, n in zip(extra_tools, extra_names, strict=True) if not n]
+        if nameable:
+            allowed_extra, denied_extra = filter_tools_by_tier([n for _, n in nameable], tier)
+            resolved_tools.extend(t for t, n in nameable if n in allowed_extra)
+            if denied_extra:
+                logger.warning(
+                    "Persona %s (tier %s): denied extra tools %s",
+                    persona.id,
+                    tier,
+                    denied_extra,
+                )
+        if unnameable:
+            logger.debug(
+                "Persona %s: %d extra tool(s) with no discoverable name, passed through",
+                persona.id,
+                len(unnameable),
+            )
+            resolved_tools.extend(unnameable)
 
     if missing_tools:
         logger.debug("Persona %s: unresolved tools %s", persona.id, missing_tools)

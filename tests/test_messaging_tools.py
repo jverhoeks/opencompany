@@ -2,6 +2,8 @@
 
 from unittest.mock import patch
 
+from tests.conftest import mock_run_async
+
 
 # ---------------------------------------------------------------------------
 # send_message tool
@@ -10,7 +12,7 @@ def test_send_message_calls_run_async():
     """send_message tool delegates to _run_async with deliver_message coroutine."""
     with patch(
         "opencompany.utils._run_async",
-        return_value="Message delivered to Jamie (dev-1)",
+        side_effect=mock_run_async("Message delivered to Jamie (dev-1)"),
     ) as mock_run:
         from opencompany.agents.tools.messaging import send_message
 
@@ -28,7 +30,7 @@ def test_send_message_returns_run_async_result():
     """send_message returns whatever _run_async returns (e.g. error)."""
     with patch(
         "opencompany.utils._run_async",
-        return_value="Error: recipient 'nobody' not found",
+        side_effect=mock_run_async("Error: recipient 'nobody' not found"),
     ):
         from opencompany.agents.tools.messaging import send_message
 
@@ -49,7 +51,7 @@ def test_contact_overseer_returns_confirmation():
     """contact_overseer stores message and returns confirmation with ID."""
     with patch(
         "opencompany.utils._run_async",
-        return_value=7,
+        side_effect=mock_run_async(7),
     ):
         from opencompany.agents.tools.overseer import contact_overseer
 
@@ -66,7 +68,7 @@ def test_contact_overseer_includes_message_id():
     """contact_overseer includes the stored message ID in its response."""
     with patch(
         "opencompany.utils._run_async",
-        return_value=42,
+        side_effect=mock_run_async(42),
     ):
         from opencompany.agents.tools.overseer import contact_overseer
 

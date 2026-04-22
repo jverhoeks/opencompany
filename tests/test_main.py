@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from tests.conftest import mock_run_async
+
 
 # ---------------------------------------------------------------------------
 # App structure tests (no lifespan needed)
@@ -167,7 +169,10 @@ async def test_lifespan_startup_shutdown():
         patch("opencompany.main.seed_company", new_callable=AsyncMock),
         patch("opencompany.main.init_redis", new_callable=AsyncMock),
         patch("opencompany.main.start_scheduler"),
-        patch("opencompany.main.asyncio.create_task", return_value=cancelled_future),
+        patch(
+            "opencompany.main.asyncio.create_task",
+            side_effect=mock_run_async(cancelled_future),
+        ),
         patch("opencompany.main._ceo_greet_overseer", new_callable=AsyncMock),
         patch(
             "opencompany.main.create_telegram_app",
@@ -205,7 +210,10 @@ async def test_lifespan_no_telegram():
         patch("opencompany.main.seed_company", new_callable=AsyncMock),
         patch("opencompany.main.init_redis", new_callable=AsyncMock),
         patch("opencompany.main.start_scheduler"),
-        patch("opencompany.main.asyncio.create_task", return_value=cancelled_future),
+        patch(
+            "opencompany.main.asyncio.create_task",
+            side_effect=mock_run_async(cancelled_future),
+        ),
         patch("opencompany.main._ceo_greet_overseer", new_callable=AsyncMock),
         patch("opencompany.main.create_telegram_app", return_value=None),
         patch("opencompany.main.scheduler") as mock_scheduler,
@@ -235,7 +243,10 @@ async def test_root_returns_html():
             patch("opencompany.main.seed_company", new_callable=AsyncMock),
             patch("opencompany.main.init_redis", new_callable=AsyncMock),
             patch("opencompany.main.start_scheduler"),
-            patch("opencompany.main.asyncio.create_task", return_value=AsyncMock()),
+            patch(
+                "opencompany.main.asyncio.create_task",
+                side_effect=mock_run_async(AsyncMock()),
+            ),
             patch("opencompany.main._ceo_greet_overseer", new_callable=AsyncMock),
             patch("opencompany.main.create_telegram_app", return_value=None),
             patch("opencompany.main.scheduler", MagicMock()),

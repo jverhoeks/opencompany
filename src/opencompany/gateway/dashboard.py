@@ -150,8 +150,13 @@ async def dashboard_overview(session: AsyncSession = Depends(get_session)):
 async def serve_workspace_file(file_path: str):
     """Serve files from the workspace (team deliverables)."""
     full = (WORKSPACE_DIR / file_path).resolve()
-    if not str(full).startswith(str(WORKSPACE_DIR)):
-        raise HTTPException(status_code=403, detail="Access denied")
+    # Use Path.is_relative_to for an exact subtree containment check —
+    # ``str.startswith`` would accept a sibling like ``workspaces-evil``
+    # whose path string happens to share the same prefix.
+    try:
+        full.relative_to(WORKSPACE_DIR)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Access denied") from None
     if not full.is_file():
         raise HTTPException(status_code=404, detail="File not found")
     media_type = mimetypes.guess_type(str(full))[0] or "application/octet-stream"

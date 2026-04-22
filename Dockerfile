@@ -1,5 +1,5 @@
 # ── Build stage ─────────────────────────────────────────────────────────────
-FROM python:3.13-slim AS builder
+FROM python:3.14-slim AS builder
 
 # Pin uv version for reproducible builds
 COPY --from=ghcr.io/astral-sh/uv:0.6 /uv /usr/local/bin/uv
@@ -13,7 +13,7 @@ COPY src/ src/
 RUN uv sync --frozen --no-dev --no-cache --compile-bytecode
 
 # ── Runtime stage ────────────────────────────────────────────────────────────
-FROM python:3.13-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 # Python tuning: no .pyc rewrites, unbuffered stdout for clean Docker logs
 ENV PYTHONDONTWRITEBYTECODE=1 \

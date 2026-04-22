@@ -41,6 +41,30 @@ async def seed_company(config_path: str = "config/company.yaml"):
     else:
         persona_list = []
 
+    # Auto-add builtin roles that aren't already listed in personas
+    listed_role_ids = {p.get("role_id", p.get("id", "")) for p in persona_list}
+    for role_id, role_cfg in roles.items():
+        if role_cfg.get("builtin") and role_id not in listed_role_ids:
+            persona_list.append(
+                {
+                    "id": role_id,
+                    "name": role_id.upper()
+                    if len(role_id) <= 3
+                    else role_id.replace("-", " ").title(),
+                    "role": role_id.replace("-", " ").title(),
+                    "role_id": role_id,
+                    "type": role_cfg.get("type", "manager"),
+                    "skills": role_cfg.get("tag_match", []),
+                    "tools": role_cfg.get("tools", []),
+                    "picks_up": role_cfg.get("tag_match", []),
+                    "reports_to": None,
+                    "model_id": role_cfg.get("model") or default_model or None,
+                    "daily_token_budget": role_cfg.get("daily_token_budget", 0),
+                    "backstory": "",
+                }
+            )
+            logger.info("Auto-adding builtin role as persona: %s", role_id)
+
     # Determine which persona IDs are builtin (role has builtin: true)
     builtin_ids = set()
     for p in persona_list:

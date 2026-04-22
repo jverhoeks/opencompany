@@ -957,22 +957,31 @@ async def test_workload_balancing_across_solvers(game_company):
 
 
 # ---------------------------------------------------------------------------
-# Seed from the real company.yaml (personas section is empty now)
+# Seed from the real company.yaml (personas: {} seeds only builtin roles)
 # ---------------------------------------------------------------------------
 async def test_seed_real_company_yaml(db_engine):
-    """Seed the actual config/company.yaml — personas: {} means 0 seeded."""
+    """Seed the actual config/company.yaml — personas: {} still seeds builtins.
+
+    Even with an empty personas section, roles marked ``builtin: true``
+    (e.g. ceo, hr) are always auto-seeded so the company can function.
+    """
     factory = async_sessionmaker(db_engine, expire_on_commit=False)
 
     with patch("opencompany.company.seed.async_session", factory):
+        from opencompany.company.config import load_company_config
         from opencompany.company.seed import seed_company
 
         await seed_company("config/company.yaml")
+
+        # Expected count is however many roles declare builtin: true
+        cfg = load_company_config("config/company.yaml")
+        expected = sum(1 for r in cfg.roles.values() if r.get("builtin"))
 
     async with factory() as session:
         from sqlalchemy import func, select
 
         count = await session.scalar(select(func.count(Persona.id)))
-        assert count == 0  # personas: {} is empty in company.yaml
+        assert count == expected
 
 
 # ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@ import logging
 import random
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from opencompany.events.bus import publish
 from opencompany.models.db import Persona, Ticket, WorkLog
@@ -194,38 +194,56 @@ async def claim_next(persona_id: str) -> dict | None:
         if not candidates:
             return None
 
-        # Score candidates by tag match
+        # Score candidates by tag match — iterate by score descending so we
+        # can try to claim the best, and fall through to the next-best if
+        # another persona beat us to the row between scoring and UPDATE.
         persona_tags = {s.lower() for s in picks_up}
-        best_ticket = None
-        best_score = 0.0
+        scored: list[tuple[float, Ticket]] = []
         for ticket in candidates:
             ticket_tags = {t.lower() for t in ticket.tags}
             score = _fuzzy_tag_score(persona_tags, ticket_tags)
-            if score > best_score:
-                best_score = score
-                best_ticket = ticket
+            if score > 0:
+                scored.append((score, ticket))
+        scored.sort(key=lambda p: (-p[0], p[1].id))
 
-        if not best_ticket:
-            return None
+        # Conditional UPDATE: only update if the row is still unassigned and
+        # status still open. Rowcount tells us whether we actually won the
+        # race — this works on Postgres and SQLite alike without needing
+        # SELECT ... FOR UPDATE SKIP LOCKED (which SQLite doesn't support).
+        for score, ticket in scored:
+            update_stmt = (
+                update(Ticket)
+                .where(
+                    Ticket.id == ticket.id,
+                    Ticket.status == "open",
+                    Ticket.assigned_to.is_(None),
+                )
+                .values(
+                    status="assigned",
+                    assigned_to=persona_id,
+                    updated_at=datetime.now(UTC),
+                )
+            )
+            upd = await session.execute(update_stmt)
+            if upd.rowcount != 1:
+                # Another persona claimed this one — try the next best.
+                continue
 
-        # Claim it
-        best_ticket.status = "assigned"
-        best_ticket.assigned_to = persona_id
-        best_ticket.updated_at = datetime.now(UTC)
-        log = WorkLog(persona_id=persona_id, action="claimed", ticket_id=best_ticket.id)
-        session.add(log)
-        await session.commit()
+            session.add(WorkLog(persona_id=persona_id, action="claimed", ticket_id=ticket.id))
+            await session.commit()
 
-        logger.info(
-            "Persona %s claimed ticket #%d (score=%.1f)",
-            persona_id,
-            best_ticket.id,
-            best_score,
-        )
-        return {
-            "id": best_ticket.id,
-            "title": best_ticket.title,
-            "description": best_ticket.description,
-            "tags": best_ticket.tags,
-            "priority": best_ticket.priority,
-        }
+            logger.info(
+                "Persona %s claimed ticket #%d (score=%.1f)",
+                persona_id,
+                ticket.id,
+                score,
+            )
+            return {
+                "id": ticket.id,
+                "title": ticket.title,
+                "description": ticket.description,
+                "tags": ticket.tags,
+                "priority": ticket.priority,
+            }
+
+        return None

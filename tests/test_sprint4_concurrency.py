@@ -79,8 +79,8 @@ async def test_get_persona_lock_creates_semaphore():
 
     _persona_locks.pop("test-lock", None)
 
-    lock1 = _get_persona_lock("test-lock")
-    lock2 = _get_persona_lock("test-lock")
+    lock1 = await _get_persona_lock("test-lock")
+    lock2 = await _get_persona_lock("test-lock")
     assert lock1 is lock2
     assert isinstance(lock1, asyncio.Semaphore)
 
@@ -93,7 +93,7 @@ async def test_get_persona_lock_custom_concurrency():
 
     _persona_locks.pop("ceo-lock", None)
 
-    lock = _get_persona_lock("ceo-lock", max_concurrent=2)
+    lock = await _get_persona_lock("ceo-lock", max_concurrent=2)
     # Semaphore with value 2 — can acquire twice
     assert await asyncio.wait_for(lock.acquire(), timeout=0.1)
     assert await asyncio.wait_for(lock.acquire(), timeout=0.1)

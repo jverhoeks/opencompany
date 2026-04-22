@@ -16,6 +16,12 @@ STREAM_KEY = "opencompany:events"
 GROUP_NAME = "opencompany-workers"
 CONSUMER_NAME = os.environ.get("HOSTNAME", socket.gethostname())
 
+# Max deliveries before a stuck message is ACKed and dropped. Prevents a single
+# poison-pill event from blocking the stream forever.
+MAX_DELIVERY_ATTEMPTS = int(os.environ.get("EVENT_MAX_DELIVERY_ATTEMPTS", "5"))
+# How long before idle pending messages are claimed from a dead consumer (ms).
+CLAIM_STALE_MS = int(os.environ.get("EVENT_CLAIM_STALE_MS", "60000"))
+
 _pool: redis.ConnectionPool | None = None
 _redis: redis.Redis | None = None
 _lock = asyncio.Lock()
@@ -83,11 +89,76 @@ async def publish(event_type: str, data: dict) -> None:
     logger.info("Published event %s: %s", event_type, data)
 
 
+async def _claim_stale_pending(r: redis.Redis) -> list[tuple[str, dict]]:
+    """Claim messages from dead consumers (pending > CLAIM_STALE_MS).
+
+    Returns a list of ``(msg_id, fields)`` pairs that this consumer now owns.
+    Using XAUTOCLAIM ensures a crashed worker's in-flight work is picked up
+    rather than sitting in the Pending Entry List forever.
+    """
+    try:
+        _next, claimed, _deleted = await r.xautoclaim(
+            STREAM_KEY,
+            GROUP_NAME,
+            CONSUMER_NAME,
+            min_idle_time=CLAIM_STALE_MS,
+            start_id="0-0",
+            count=50,
+        )
+    except Exception:
+        logger.exception("xautoclaim failed; skipping reclaim round")
+        return []
+    return list(claimed or [])
+
+
+async def _handle_entry(
+    r: redis.Redis,
+    callback: Callable,
+    msg_id: str,
+    fields: dict,
+) -> None:
+    """Decode, dispatch, ACK. Poison-pill entries get ACKed after N attempts."""
+    try:
+        payload_raw = fields.get("payload") or fields.get(b"payload")
+        if payload_raw is None:
+            logger.error("Event %s missing payload field, dropping", msg_id)
+            await r.xack(STREAM_KEY, GROUP_NAME, msg_id)
+            return
+        payload = json.loads(payload_raw)
+        logger.info("Received event %s: %s", payload.get("type"), payload.get("data"))
+        await callback(payload["type"], payload["data"])
+        await r.xack(STREAM_KEY, GROUP_NAME, msg_id)
+        return
+    except Exception:
+        logger.exception("Error processing event %s", msg_id)
+
+    # Look up how many times this entry has been delivered. If we've
+    # exceeded our budget, ACK and drop — the entry is a poison pill and
+    # blocking the stream on it makes every downstream worker stall.
+    try:
+        pending = await r.xpending_range(STREAM_KEY, GROUP_NAME, min=msg_id, max=msg_id, count=1)
+    except Exception:
+        pending = []
+    attempts = int(pending[0].get("times_delivered", 0)) if pending else 0
+    if attempts >= MAX_DELIVERY_ATTEMPTS:
+        logger.error(
+            "Event %s failed %d times — ACKing to unblock stream (dead-letter)",
+            msg_id,
+            attempts,
+        )
+        try:
+            await r.xack(STREAM_KEY, GROUP_NAME, msg_id)
+        except Exception:
+            logger.warning("Dead-letter ACK for %s failed; will retry next cycle", msg_id)
+
+
 async def subscribe(callback: Callable) -> None:
     """Read events via XREADGROUP and ACK after processing.
 
     Blocks indefinitely; intended to run as a background task.
-    Uses exponential backoff on transient errors.
+    Uses exponential backoff on transient errors, reclaims stale pending
+    entries from dead consumers, and drops poison-pill messages after
+    ``MAX_DELIVERY_ATTEMPTS`` failed deliveries.
     """
     r = await get_redis()
     await _ensure_consumer_group(r)
@@ -95,9 +166,18 @@ async def subscribe(callback: Callable) -> None:
 
     backoff = 0.5
     max_backoff = 30.0
+    reclaim_every = 30  # read cycles between XAUTOCLAIM sweeps
+    cycles = 0
 
     while True:
         try:
+            # Periodically reclaim entries left pending by a crashed consumer.
+            cycles += 1
+            if cycles % reclaim_every == 0:
+                claimed = await _claim_stale_pending(r)
+                for msg_id, fields in claimed:
+                    await _handle_entry(r, callback, msg_id, fields)
+
             messages = await r.xreadgroup(
                 GROUP_NAME,
                 CONSUMER_NAME,
@@ -111,13 +191,7 @@ async def subscribe(callback: Callable) -> None:
 
             for _stream, entries in messages:
                 for msg_id, fields in entries:
-                    try:
-                        payload = json.loads(fields["payload"])
-                        logger.info("Received event %s: %s", payload["type"], payload["data"])
-                        await callback(payload["type"], payload["data"])
-                        await r.xack(STREAM_KEY, GROUP_NAME, msg_id)
-                    except Exception:
-                        logger.exception("Error processing event %s", msg_id)
+                    await _handle_entry(r, callback, msg_id, fields)
 
             backoff = 0.5  # reset after successful processing
 

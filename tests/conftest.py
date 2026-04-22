@@ -36,6 +36,24 @@ def _compile_jsonb_sqlite(type_, compiler, **kw):
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
 
+@pytest.fixture(autouse=True)
+def _reset_asyncio_thread_state():
+    """Clear stale thread-local running-loop state between tests.
+
+    pytest-playwright's synchronous sessions and pytest-asyncio's event
+    loops can leave ``asyncio._get_running_loop`` pointing at a closed
+    loop on this thread. That stale reference later breaks
+    ``loop.run_until_complete`` in sync tests (``_run_async`` fallback)
+    and async fixtures (``RuntimeError: Cannot run the event loop while
+    another loop is running``). Reset before and after each test.
+    """
+    import asyncio.events
+
+    asyncio.events._set_running_loop(None)
+    yield
+    asyncio.events._set_running_loop(None)
+
+
 @pytest.fixture
 async def db_engine():
     engine = create_async_engine(TEST_DATABASE_URL)
@@ -52,6 +70,43 @@ async def db_session(db_engine):
     factory = async_sessionmaker(db_engine, expire_on_commit=False)
     async with factory() as session:
         yield session
+
+
+# ---------------------------------------------------------------------------
+# Test helpers
+# ---------------------------------------------------------------------------
+def mock_run_async(result=None, *, raises: BaseException | None = None):
+    """Build a ``side_effect`` for any coroutine-consuming sync seam.
+
+    Use when patching functions that accept a coroutine but you don't want
+    to actually run it — e.g. ``opencompany.utils._run_async`` or
+    ``asyncio.create_task``. A plain ``return_value=X`` leaves the coroutine
+    argument orphaned, producing ``RuntimeWarning: coroutine '...' was never
+    awaited`` (often attributed to unrelated tests by Python's GC).
+
+    Example::
+
+        with patch("opencompany.utils._run_async", side_effect=mock_run_async(7)):
+            ...
+        with patch(
+            "opencompany.main.asyncio.create_task",
+            side_effect=mock_run_async(cancelled_future),
+        ):
+            ...
+
+    The returned callable closes the supplied coroutine (when present) then
+    returns ``result`` — or raises ``raises`` if provided.
+    """
+
+    def _impl(coro=None):
+        close = getattr(coro, "close", None)
+        if callable(close):
+            close()
+        if raises is not None:
+            raise raises
+        return result
+
+    return _impl
 
 
 # ---------------------------------------------------------------------------

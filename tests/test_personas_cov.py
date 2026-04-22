@@ -14,6 +14,7 @@ from opencompany.company.personas import (
     list_personas_sync,
 )
 from opencompany.models.db import Persona, Ticket
+from tests.conftest import mock_run_async
 
 
 @pytest.fixture
@@ -313,7 +314,7 @@ def test_hire_persona_sync_wrapper():
     """hire_persona_sync delegates to _hire_persona via _run_async."""
     with patch(
         "opencompany.company.personas._run_async",
-        return_value="Hired Test (id=test)",
+        side_effect=mock_run_async("Hired Test (id=test)"),
     ) as mock:
         result = hire_persona_sync(
             persona_id="test",
@@ -331,7 +332,7 @@ def test_fire_persona_sync_wrapper():
     """fire_persona_sync delegates to _fire_persona via _run_async."""
     with patch(
         "opencompany.company.personas._run_async",
-        return_value="Fired Test (test)",
+        side_effect=mock_run_async("Fired Test (test)"),
     ) as mock:
         result = fire_persona_sync(persona_id="test", reason="test")
     assert "Fired Test" in result
@@ -342,7 +343,7 @@ def test_list_personas_sync_wrapper():
     """list_personas_sync delegates to _list_personas via _run_async."""
     with patch(
         "opencompany.company.personas._run_async",
-        return_value=[{"id": "test"}],
+        side_effect=mock_run_async([{"id": "test"}]),
     ) as mock:
         result = list_personas_sync()
     assert result == [{"id": "test"}]

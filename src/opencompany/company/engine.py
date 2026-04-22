@@ -20,16 +20,29 @@ _running_tasks: set[asyncio.Task] = set()
 # Per-persona concurrency semaphores — prevents a persona from running
 # multiple tasks simultaneously (configurable per role via max_concurrent).
 _persona_locks: dict[str, asyncio.Semaphore] = {}
+_persona_locks_guard = asyncio.Lock()
 _DEFAULT_MAX_CONCURRENT = 1  # solvers/leads: 1 task at a time
 
 
-def _get_persona_lock(
+async def _get_persona_lock(
     persona_id: str, max_concurrent: int = _DEFAULT_MAX_CONCURRENT
 ) -> asyncio.Semaphore:
-    """Get or create a semaphore for a persona."""
-    if persona_id not in _persona_locks:
-        _persona_locks[persona_id] = asyncio.Semaphore(max_concurrent)
-    return _persona_locks[persona_id]
+    """Get or create a semaphore for a persona.
+
+    The ``dict`` is protected by ``_persona_locks_guard`` so two coroutines
+    handling ``persona.idle`` events for the same persona can't each build
+    their own semaphore and both bypass the intended serialization.
+    """
+    # Fast path: the common case is a hit, so avoid the guard when we can.
+    sem = _persona_locks.get(persona_id)
+    if sem is not None:
+        return sem
+    async with _persona_locks_guard:
+        sem = _persona_locks.get(persona_id)
+        if sem is None:
+            sem = asyncio.Semaphore(max_concurrent)
+            _persona_locks[persona_id] = sem
+        return sem
 
 
 async def set_persona_state(persona_id: str, state: str) -> None:
@@ -185,6 +198,22 @@ async def _route_ticket(ticket_id: int):
     )
 
 
+def _lookup_role_config(persona: Persona | None, config) -> dict:
+    """Resolve a persona's role config, trying persona id then the normalized role name.
+
+    ``config.roles`` is keyed by *role ID* (e.g. ``"ceo"``, ``"tech-lead"``), not by
+    persona ID. Looking up by persona ID only works when persona-id == role-id (e.g.
+    the builtin ``ceo``/``hr`` singletons). For any other persona this silently
+    returned ``{}`` and caused tickets to default-route as ``"solver"``.
+    """
+    if not persona or not config:
+        return {}
+    for key in (persona.id, persona.role.lower().replace(" ", "-") if persona.role else ""):
+        if key and key in config.roles:
+            return config.roles[key]
+    return {}
+
+
 def _get_routing_target(
     creator: Persona | None,
     config,
@@ -198,8 +227,8 @@ def _get_routing_target(
     if creator.id in routing:
         return routing[creator.id]
 
-    # Check role config for routes_to
-    creator_role_config = config.roles.get(creator.id, {})
+    # Check role config for routes_to (look up by role, not persona id)
+    creator_role_config = _lookup_role_config(creator, config)
     routes_to = creator_role_config.get("routes_to")
     if routes_to:
         return routes_to
@@ -398,7 +427,7 @@ def _spawn_persona_task(persona: Persona, task: str, label: str, ticket_id: int 
     async def _run():
         from opencompany.company.budget import check_budget, consume_tokens
 
-        lock = _get_persona_lock(persona.id)
+        lock = await _get_persona_lock(persona.id)
         if lock.locked():
             logger.info(
                 "Persona %s already running a task, skipping %s",
