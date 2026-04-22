@@ -10,6 +10,10 @@ logger = logging.getLogger(__name__)
 TIERS = {"external": 0, "solver": 1, "lead": 2, "full": 3}
 
 # Minimum tier required to use each tool. Tools not listed default to "external" (anyone).
+#
+# Keep this table in sync with any new tool added under ``agents/tools/``.
+# Policy-authoring tools must be gated: ``write_policy`` / ``approve_policy``
+# injection-mutate every agent's system prompt, so they sit at ``lead``.
 TOOL_TIER_REQUIREMENTS: dict[str, str] = {
     # Full tier only (CEO, HR)
     "hire_persona": "full",
@@ -21,14 +25,17 @@ TOOL_TIER_REQUIREMENTS: dict[str, str] = {
     "create_ticket": "lead",
     "send_message": "lead",
     "propose_soul_update": "lead",
+    "write_policy": "lead",
+    "approve_policy": "lead",
     # Solver tier+
     "spawn_subagent": "solver",
     "write_file": "solver",
     "update_ticket": "solver",
     "web_fetch": "solver",
     "publish_file": "solver",
-    # Everything else (read_file, list_files, grep_code, list_tickets,
-    # list_team, web_search, remember, recall) is accessible at external tier.
+    # Read-only tools are accessible at external tier (read_file, list_files,
+    # grep_code, list_tickets, list_team, web_search, remember, recall,
+    # list_policies, read_policy, read_soul).
 }
 
 

@@ -1,5 +1,8 @@
 .git
 .github
+.claude
+.worktrees
+.playwright-mcp
 tests
 workspaces
 infra
@@ -14,3 +17,6 @@ __pycache__
 .mypy_cache
 *.egg-info
 *.md
+!soul.md
+uv.lock.bak
+tests.md

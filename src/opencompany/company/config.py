@@ -1,7 +1,10 @@
 """Company config: load and query roles, org styles, personas from YAML."""
 
+import contextlib
 import logging
 import os
+import tempfile
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -169,6 +172,51 @@ def _trust_from_type(role_type: str) -> str:
     }.get(role_type, "solver")
 
 
+@contextlib.contextmanager
+def _locked_yaml_edit(path: str) -> Iterator[dict]:
+    """Read-modify-write ``path`` atomically with a cross-process file lock.
+
+    Yields the parsed YAML dict; whatever the caller mutates is written back
+    on clean exit. The write is atomic (tmpfile + fsync + rename) and guarded
+    by ``fcntl.flock`` so concurrent agent writes can't interleave and lose
+    each other's changes.
+    """
+    import fcntl
+
+    dirpath = os.path.dirname(os.path.abspath(path)) or "."
+    os.makedirs(dirpath, exist_ok=True)
+    lock_path = f"{path}.lock"
+    # Use O_CREAT so the lockfile exists on first use; keep it around across
+    # calls so flock contention works across processes.
+    lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        with open(path) as f:
+            raw = yaml.safe_load(f) or {}
+
+        yield raw
+
+        # Write to a temp file in the same directory, then atomic rename.
+        fd, tmp_path = tempfile.mkstemp(
+            prefix=f".{os.path.basename(path)}.", suffix=".tmp", dir=dirpath
+        )
+        try:
+            with os.fdopen(fd, "w") as tmp_f:
+                yaml.dump(raw, tmp_f, default_flow_style=False, sort_keys=False)
+                tmp_f.flush()
+                os.fsync(tmp_f.fileno())
+            os.replace(tmp_path, path)
+        except Exception:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(tmp_path)
+            raise
+    finally:
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        finally:
+            os.close(lock_fd)
+
+
 def add_role(
     role_id: str,
     role_type: str,
@@ -186,30 +234,25 @@ def add_role(
     if path is None:
         path = os.path.join("config", "company.yaml")
 
-    with open(path) as f:
-        raw = yaml.safe_load(f)
+    with _locked_yaml_edit(path) as raw:
+        roles = raw.setdefault("roles", {})
+        if role_id in roles:
+            raise ValueError(f"Role '{role_id}' already exists")
 
-    roles = raw.setdefault("roles", {})
-    if role_id in roles:
-        raise ValueError(f"Role '{role_id}' already exists")
+        role_def: dict[str, Any] = {
+            "type": role_type,
+            "responsibilities": responsibilities,
+        }
+        if constraints:
+            role_def["constraints"] = constraints
+        if tools:
+            role_def["tools"] = tools
+        if tag_match:
+            role_def["tag_match"] = tag_match
+        if routes_to:
+            role_def["routes_to"] = routes_to
 
-    role_def: dict[str, Any] = {
-        "type": role_type,
-        "responsibilities": responsibilities,
-    }
-    if constraints:
-        role_def["constraints"] = constraints
-    if tools:
-        role_def["tools"] = tools
-    if tag_match:
-        role_def["tag_match"] = tag_match
-    if routes_to:
-        role_def["routes_to"] = routes_to
-
-    roles[role_id] = role_def
-
-    with open(path, "w") as f:
-        yaml.dump(raw, f, default_flow_style=False, sort_keys=False)
+        roles[role_id] = role_def
 
     invalidate_cache()
     logger.info("Added role '%s' to %s", role_id, path)
@@ -224,17 +267,11 @@ def update_role(
     if path is None:
         path = os.path.join("config", "company.yaml")
 
-    with open(path) as f:
-        raw = yaml.safe_load(f)
-
-    roles = raw.get("roles", {})
-    if role_id not in roles:
-        raise KeyError(f"Role '{role_id}' not found")
-
-    roles[role_id].update(updates)
-
-    with open(path, "w") as f:
-        yaml.dump(raw, f, default_flow_style=False, sort_keys=False)
+    with _locked_yaml_edit(path) as raw:
+        roles = raw.get("roles", {})
+        if role_id not in roles:
+            raise KeyError(f"Role '{role_id}' not found")
+        roles[role_id].update(updates)
 
     invalidate_cache()
     logger.info("Updated role '%s' in %s", role_id, path)
@@ -245,17 +282,11 @@ def delete_role(role_id: str, path: str | None = None) -> None:
     if path is None:
         path = os.path.join("config", "company.yaml")
 
-    with open(path) as f:
-        raw = yaml.safe_load(f)
-
-    roles = raw.get("roles", {})
-    if role_id not in roles:
-        raise KeyError(f"Role '{role_id}' not found")
-
-    del roles[role_id]
-
-    with open(path, "w") as f:
-        yaml.dump(raw, f, default_flow_style=False, sort_keys=False)
+    with _locked_yaml_edit(path) as raw:
+        roles = raw.get("roles", {})
+        if role_id not in roles:
+            raise KeyError(f"Role '{role_id}' not found")
+        del roles[role_id]
 
     invalidate_cache()
     logger.info("Deleted role '%s' from %s", role_id, path)

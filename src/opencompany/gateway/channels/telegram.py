@@ -20,6 +20,19 @@ logger = logging.getLogger(__name__)
 DEFAULT_PERSONA_ID = os.environ.get("DEFAULT_PERSONA_ID", "ceo")
 
 
+def _allowed_user_ids() -> set[str] | None:
+    """Return the allowlist of Telegram user IDs, or None if open to everyone.
+
+    ``TELEGRAM_ALLOWED_USER_IDS`` accepts a comma-separated list of numeric
+    user IDs. When unset, the bot accepts any sender (preserves current dev
+    ergonomics); set it to lock the bot down in shared / production chats.
+    """
+    raw = os.environ.get("TELEGRAM_ALLOWED_USER_IDS", "").strip()
+    if not raw:
+        return None
+    return {uid.strip() for uid in raw.split(",") if uid.strip()}
+
+
 async def _resolve_persona(channel: str, chat_type: str, peer: str) -> Persona | None:
     """Resolve which persona handles this message based on bindings.
 
@@ -47,6 +60,15 @@ async def _handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
     chat_type = "group" if update.effective_chat.type in ("group", "supergroup") else "direct"
     peer = str(update.effective_user.id)
+
+    allowed = _allowed_user_ids()
+    if allowed is not None and peer not in allowed:
+        logger.warning("Telegram: rejecting message from non-allowlisted user %s", peer)
+        try:
+            await update.message.reply_text("Access denied.")
+        except Exception:
+            logger.debug("Failed to send denial to %s", peer, exc_info=True)
+        return
 
     persona = await _resolve_persona("telegram", chat_type, peer)
     if not persona:

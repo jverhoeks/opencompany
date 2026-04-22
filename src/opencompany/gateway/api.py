@@ -24,22 +24,39 @@ router = APIRouter()
 _bearer_scheme = HTTPBearer(auto_error=False)
 
 
+def _auth_disabled_ok() -> bool:
+    """Allow disabled auth only in dev environments, refuse everywhere else."""
+    env = os.environ.get("ENVIRONMENT", "").lower()
+    return env in {"", "dev", "development", "local", "test"}
+
+
 async def verify_api_key(
     credentials: HTTPAuthorizationCredentials | None = Security(_bearer_scheme),
     api_key_param: str | None = Query(None, alias="api_key"),
 ):
-    """Require a valid API key when API_KEY env var is set.
+    """Require a valid API key unless running in a recognised dev environment.
 
-    Accepts the key as a Bearer token (Authorization header) or ?api_key= query
-    parameter (needed for EventSource / SSE which cannot set custom headers).
+    Accepts the key as a Bearer token (Authorization header) or ``?api_key=``
+    query parameter (needed for EventSource / SSE which cannot set custom
+    headers). When ``API_KEY`` is unset in a production-like environment
+    (``ENVIRONMENT`` is anything other than dev/test/local), auth fails closed
+    so admin endpoints like ``/api/reset`` and ``/api/soul`` can't be hit
+    anonymously.
     """
     api_key = os.environ.get("API_KEY")
     if not api_key:
-        logger.warning(
-            "API_KEY is not set — authentication is disabled. "
-            "Set the API_KEY environment variable to secure this endpoint."
+        if _auth_disabled_ok():
+            logger.warning(
+                "API_KEY is not set — authentication is disabled (dev mode). "
+                "Set API_KEY and ENVIRONMENT=production before deploying."
+            )
+            return
+        logger.error(
+            "API_KEY is not set in a non-dev environment (ENVIRONMENT=%r); "
+            "refusing request to avoid running unauthenticated in production.",
+            os.environ.get("ENVIRONMENT"),
         )
-        return  # auth disabled in dev
+        raise HTTPException(status_code=503, detail="Server misconfigured: API_KEY unset")
     token = credentials.credentials if credentials else api_key_param
     if token is None or not hmac.compare_digest(token, api_key):
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
@@ -462,24 +479,28 @@ async def api_reset():
     from opencompany.models.engine import async_session
 
     async with async_session() as session:
-        # Truncate in FK-safe order
-        for table in [
-            "work_log",
-            "overseer_messages",
-            "persona_memory",
-            "policy_documents",
-            "tickets",
-            "personas",
-        ]:
-            await session.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
+        # Single TRUNCATE with CASCADE handles FK ordering automatically.
+        await session.execute(
+            text(
+                "TRUNCATE TABLE work_log, overseer_messages, persona_memory,"
+                " policy_documents, tickets, persona_configs,"
+                " company_snapshots, soul_versions, personas CASCADE"
+            )
+        )
         await session.commit()
 
-    # Flush Redis event stream
+    # Flush Redis event stream — DB is already truncated, so surfacing the
+    # failure matters: if the stream still has events targeting now-deleted
+    # tickets we cascade into 404s and stuck consumers. Log loudly, don't swallow.
+    redis_reset_ok = True
+    redis_error: str | None = None
     try:
         r = await get_redis()
         await r.xtrim("opencompany:events", maxlen=0)
-    except Exception:
-        pass
+    except Exception as exc:
+        redis_reset_ok = False
+        redis_error = f"{type(exc).__name__}: {exc}"
+        logger.exception("Reset: failed to flush Redis event stream — stale events remain")
 
     # Re-seed from config
     await seed_company()
@@ -489,7 +510,14 @@ async def api_reset():
         result = await session.execute(select(Persona))
         count = len(result.scalars().all())
 
-    return {"status": "ok", "personas_seeded": count}
+    response: dict = {
+        "status": "ok" if redis_reset_ok else "degraded",
+        "personas_seeded": count,
+        "redis_stream_flushed": redis_reset_ok,
+    }
+    if redis_error:
+        response["redis_error"] = redis_error
+    return response
 
 
 # --- Roles CRUD endpoints ---

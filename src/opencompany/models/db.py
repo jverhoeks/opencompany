@@ -67,8 +67,8 @@ class Ticket(Base):
     )
 
 
-# TODO: PersonaMemory is used by the agent memory subsystem but has no
-# read/write paths wired up yet. Wire up or remove once agents land.
+# Durable persona memory: store_memory / recall_memories / build_memory_context
+# live in company/memory.py; agent tool wrappers are in agents/tools/memory.py.
 class PersonaMemory(Base):
     __tablename__ = "persona_memory"
 

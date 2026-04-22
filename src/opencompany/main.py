@@ -144,12 +144,31 @@ async def lifespan(app: FastAPI):
     start_scheduler()
     logger.info("Scheduler started")
 
-    # Start event listener (runs in background)
-    _listener_task = asyncio.create_task(start_event_listener())
-    _listener_task.add_done_callback(
-        lambda t: logger.error("Event listener died: %s", t.exception()) if t.exception() else None
-    )
-    logger.info("Event listener started")
+    # Start event listener (runs in background) with auto-restart on crash.
+    # A dead listener is invisible at the HTTP layer: health stays green
+    # while Redis' pending-event list piles up silently. Supervise it.
+    _shutdown_listener = asyncio.Event()
+
+    async def _supervised_listener():
+        backoff = 1.0
+        while not _shutdown_listener.is_set():
+            try:
+                await start_event_listener()
+                # Normal return = clean shutdown; don't restart.
+                return
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Event listener crashed; restarting in %.1fs", backoff)
+                try:
+                    await asyncio.wait_for(_shutdown_listener.wait(), timeout=backoff)
+                    return  # shutdown signalled during backoff
+                except TimeoutError:
+                    pass
+                backoff = min(backoff * 2, 30.0)
+
+    _listener_task = asyncio.create_task(_supervised_listener())
+    logger.info("Event listener started (supervised)")
 
     # CEO welcome: greet the overseer on startup
     await _ceo_greet_overseer()
@@ -178,6 +197,7 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown(wait=True)
     logger.info("Scheduler stopped")
 
+    _shutdown_listener.set()
     _listener_task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await _listener_task

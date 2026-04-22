@@ -1,5 +1,7 @@
 import logging
 import os
+import re
+import shlex
 import shutil
 import subprocess
 
@@ -75,6 +77,9 @@ def read_file(path: str, persona_id: str = "") -> str:
         return f.read()
 
 
+_GLOB_RE = re.compile(r"^[\w*.?\[\]\-]+$")
+
+
 @tool
 def grep_code(
     pattern: str, directory: str = ".", file_glob: str = "*.py", persona_id: str = ""
@@ -91,9 +96,14 @@ def grep_code(
         safe_dir = _resolve_workspace_path(directory, persona_id)
     except ValueError as e:
         return f"Error: {e}"
+    if not _GLOB_RE.match(file_glob):
+        return "Error: invalid file_glob (only alphanumerics, *, ?, -, ., [, ] allowed)"
+    # Force the pattern to be parsed as a literal search value, not a grep
+    # flag or alternative pattern list — prevents ``-e '...' --include=*.env``
+    # style argument smuggling when the pattern starts with a dash.
     try:
         result = subprocess.run(
-            ["grep", "-rn", "--include", file_glob, pattern, safe_dir],
+            ["grep", "-rn", "--include", file_glob, "-e", pattern, "--", safe_dir],
             capture_output=True,
             text=True,
             timeout=30,
@@ -211,7 +221,20 @@ def run_script(path: str, args: str = "", persona_id: str = "") -> str:
 
     cmd = [*interpreter, safe]
     if args:
-        cmd.extend(args.split())
+        # Parse with shlex so quoted strings survive, and reject any flag that
+        # would redirect the interpreter away from the sandboxed script file
+        # (e.g. -c 'exec(...)', -m other.module, --eval).
+        try:
+            parsed = shlex.split(args)
+        except ValueError as e:
+            return f"Error: unparseable args ({e})"
+        disallowed_prefixes = ("-c", "-m", "--exec", "--eval")
+        for a in parsed:
+            if a.startswith("-") and any(
+                a == p or a.startswith(f"{p}=") for p in disallowed_prefixes
+            ):
+                return f"Error: disallowed argument {a!r}"
+        cmd.extend(parsed)
 
     cwd = _persona_workspace(persona_id) if persona_id else WORKSPACE_ROOT
     os.makedirs(cwd, exist_ok=True)
