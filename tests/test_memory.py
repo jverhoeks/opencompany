@@ -5,6 +5,7 @@ from unittest.mock import patch
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from opencompany.models.db import Persona
+from tests.conftest import mock_run_async
 
 
 # ---------------------------------------------------------------------------
@@ -209,7 +210,7 @@ def test_remember_tool():
 
     with (
         patch("opencompany.company.memory.store_memory"),
-        patch("opencompany.utils._run_async", side_effect=lambda coro: 42),
+        patch("opencompany.utils._run_async", side_effect=mock_run_async(42)),
     ):
         result = remember.__wrapped__(
             content="Test memory",
@@ -231,7 +232,7 @@ def test_recall_tool():
         {"id": 2, "type": "decision", "content": "Use Python", "related_to": "tech"},
     ]
 
-    with patch("opencompany.utils._run_async", return_value=mock_memories):
+    with patch("opencompany.utils._run_async", side_effect=mock_run_async(mock_memories)):
         result = recall.__wrapped__(persona_id="dev-1")
 
     assert "#1" in result
@@ -244,7 +245,7 @@ def test_recall_tool_empty():
     """recall tool returns message when no memories found."""
     from opencompany.agents.tools.memory import recall
 
-    with patch("opencompany.utils._run_async", return_value=[]):
+    with patch("opencompany.utils._run_async", side_effect=mock_run_async([])):
         result = recall.__wrapped__(persona_id="dev-1")
 
     assert "No memories" in result

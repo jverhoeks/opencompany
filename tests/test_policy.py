@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from opencompany.models.db import Persona
+from tests.conftest import mock_run_async
 
 
 # ---------------------------------------------------------------------------
@@ -399,7 +400,7 @@ def test_write_policy_tool():
     """write_policy tool calls create_policy via _run_async."""
     from opencompany.agents.tools.policy import write_policy
 
-    with patch("opencompany.utils._run_async", return_value=7):
+    with patch("opencompany.utils._run_async", side_effect=mock_run_async(7)):
         result = write_policy.__wrapped__(
             title="Test Policy",
             content="Content here",
@@ -418,7 +419,7 @@ def test_approve_policy_tool():
     from opencompany.agents.tools.policy import approve_policy
 
     mock_result = {"id": 3, "title": "My Policy", "status": "approved"}
-    with patch("opencompany.utils._run_async", return_value=mock_result):
+    with patch("opencompany.utils._run_async", side_effect=mock_run_async(mock_result)):
         result = approve_policy.__wrapped__(policy_id=3, persona_id="ceo-1")
 
     assert "#3" in result
@@ -431,7 +432,7 @@ def test_approve_policy_tool_error():
 
     with patch(
         "opencompany.utils._run_async",
-        side_effect=PermissionError("Only managers"),
+        side_effect=mock_run_async(raises=PermissionError("Only managers")),
     ):
         result = approve_policy.__wrapped__(policy_id=3, persona_id="dev-1")
 
@@ -460,7 +461,7 @@ def test_list_policies_tool():
             "applies_to": ["backend-dev"],
         },
     ]
-    with patch("opencompany.utils._run_async", return_value=mock_policies):
+    with patch("opencompany.utils._run_async", side_effect=mock_run_async(mock_policies)):
         result = list_policies.__wrapped__(persona_id="dev-1")
 
     assert "#1" in result
@@ -473,7 +474,7 @@ def test_list_policies_tool_empty():
     """list_policies tool returns message when no policies found."""
     from opencompany.agents.tools.policy import list_policies
 
-    with patch("opencompany.utils._run_async", return_value=[]):
+    with patch("opencompany.utils._run_async", side_effect=mock_run_async([])):
         result = list_policies.__wrapped__(persona_id="dev-1")
 
     assert "no policies" in result.lower()
@@ -496,7 +497,7 @@ def test_read_policy_tool():
         "created_at": "2026-02-23T00:00:00",
         "updated_at": "2026-02-23T00:00:00",
     }
-    with patch("opencompany.utils._run_async", return_value=mock_policy):
+    with patch("opencompany.utils._run_async", side_effect=mock_run_async(mock_policy)):
         result = read_policy.__wrapped__(policy_id=1, persona_id="dev-1")
 
     assert "API Guide" in result
@@ -508,7 +509,7 @@ def test_read_policy_tool_not_found():
     """read_policy tool returns message when policy not found."""
     from opencompany.agents.tools.policy import read_policy
 
-    with patch("opencompany.utils._run_async", return_value=None):
+    with patch("opencompany.utils._run_async", side_effect=mock_run_async(None)):
         result = read_policy.__wrapped__(policy_id=999, persona_id="dev-1")
 
     assert "not found" in result.lower()

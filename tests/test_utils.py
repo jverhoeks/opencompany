@@ -54,8 +54,15 @@ def test_run_async_uses_main_loop_when_running():
         async def coro():
             return "test"
 
-        with patch("asyncio.run_coroutine_threadsafe", return_value=mock_future) as mock_rcts:
-            result = _run_async(coro())
+        # Bind the coroutine explicitly so we can close it after the patched
+        # ``run_coroutine_threadsafe`` short-circuits scheduling — otherwise
+        # the live coroutine leaks and triggers "never awaited" warnings.
+        c = coro()
+        try:
+            with patch("asyncio.run_coroutine_threadsafe", return_value=mock_future) as mock_rcts:
+                result = _run_async(c)
+        finally:
+            c.close()
 
         assert result == "threaded-result"
         mock_rcts.assert_called_once()
