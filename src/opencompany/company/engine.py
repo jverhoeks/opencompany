@@ -428,7 +428,17 @@ def _spawn_persona_task(persona: Persona, task: str, label: str, ticket_id: int 
         from opencompany.company.budget import check_budget, consume_tokens
 
         lock = await _get_persona_lock(persona.id)
-        if lock.locked():
+        # Explicit atomic try-acquire. ``if lock.locked(): return; async with
+        # lock`` is safe today only because CPython's asyncio.Semaphore.acquire
+        # returns synchronously when the semaphore is free — any future
+        # refactor that inserts an ``await`` between the check and the enter
+        # would reintroduce a check-then-act race where two spawns of the
+        # same persona could both pass. ``asyncio.timeout(0)`` makes the
+        # non-blocking intent explicit and race-free regardless.
+        try:
+            async with asyncio.timeout(0):
+                await lock.acquire()
+        except TimeoutError:
             logger.info(
                 "Persona %s already running a task, skipping %s",
                 persona.id,
@@ -436,8 +446,10 @@ def _spawn_persona_task(persona: Persona, task: str, label: str, ticket_id: int 
             )
             return
 
-        async with lock:
+        try:
             await _run_inner(check_budget, consume_tokens)
+        finally:
+            lock.release()
 
     async def _run_inner(check_budget, consume_tokens):
         # Budget gate: skip if over daily budget
