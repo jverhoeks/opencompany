@@ -35,6 +35,25 @@ dev = [
 [project.scripts]
 opencompany = "opencompany.main:main"
 
+# ---------------------------------------------------------------------------
+# Security overrides: force patched versions of transitive deps whose upstream
+# parent pins an exact vulnerable release.
+#
+# - aiohttp: litellm hard-pins ``aiohttp==3.13.3`` up through 1.83.13 despite
+#   10 GHSAs fixed in 3.13.4 (client-side cookie leak on cross-origin
+#   redirect GHSA-966j-vmvw-g2g9, CRLF injection in multipart, DNS cache DoS,
+#   etc.). 3.13.3 → 3.13.4 is a patch release — API-compatible.
+# - python-dotenv: litellm hard-pins ``python-dotenv==1.0.1``; 1.2.2 patches
+#   GHSA-mf9w-mj56-hr94 (symlink-following in ``set_key``). Not exploitable
+#   in our code (we don't call ``set_key``) but we upgrade as defense-in-depth.
+#
+# Revisit when litellm relaxes the exact pins upstream.
+[tool.uv]
+override-dependencies = [
+    "aiohttp>=3.13.4",
+    "python-dotenv>=1.2.2",
+]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
