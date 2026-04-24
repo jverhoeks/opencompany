@@ -54,6 +54,23 @@ override-dependencies = [
     "python-dotenv>=1.2.2",
 ]
 
+# ---------------------------------------------------------------------------
+# Cooldown exceptions.
+#
+# The default uv cooldown (``exclude-newer-span = "P7D"``) blocks any package
+# uploaded within the last 7 days — a sensible supply-chain safeguard against
+# recently-compromised releases. We override it for Strands because we track
+# upstream tightly: the SDK is AWS-maintained, releases are small (mostly bug
+# fixes and telemetry improvements), and the RSS ``get_feed_file_path``
+# path-traversal fix in tools 0.5.0 is worth picking up promptly even though
+# we don't use RSS tools today.
+#
+# Cutoff is set a day past the current strands release (2026-04-22) so any
+# surprise release gets the standard cooldown. Bump when upgrading again.
+[tool.uv.exclude-newer-package]
+"strands-agents" = "2026-04-25"
+"strands-agents-tools" = "2026-04-25"
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
