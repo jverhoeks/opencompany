@@ -128,7 +128,18 @@ _STALE_MINUTES = int(os.environ.get("STALE_ASSIGNMENT_MINUTES", "10"))
 
 
 async def _expire_stale_assignments_job():
-    """Reclaim tickets stuck in_progress for too long (work-stealing)."""
+    """Reclaim stale ticket assignments (work-stealing).
+
+    Both ``assigned`` and ``in_progress`` are reclaimed:
+
+    - ``in_progress`` — the worker started but hasn't made progress for
+      longer than the cutoff (classic stuck-worker case).
+    - ``assigned`` — the ticket was routed to a persona but ``_spawn_persona_task``
+      never flipped it to ``in_progress``. This happens when the persona's
+      per-persona semaphore was already held (another task running) so the
+      spawn was silently dropped. Without this reclaim path such tickets
+      would sit ``assigned`` forever and never be re-routed.
+    """
     try:
         from sqlalchemy import select
 
@@ -140,7 +151,7 @@ async def _expire_stale_assignments_job():
         async with async_session() as session:
             result = await session.execute(
                 select(Ticket).where(
-                    Ticket.status == "in_progress",
+                    Ticket.status.in_(("assigned", "in_progress")),
                     Ticket.updated_at < cutoff,
                 )
             )
@@ -239,10 +250,66 @@ async def snapshot_company(trigger: str = "interval") -> None:
 
 
 _SNAPSHOT_INTERVAL = int(os.environ.get("SNAPSHOT_INTERVAL_SECONDS", "300"))
+_UNBLOCK_INTERVAL = int(os.environ.get("UNBLOCK_INTERVAL_SECONDS", "300"))
 
 
 async def _snapshot_job():
     await snapshot_company("interval")
+
+
+async def _unblock_personas_job():
+    """Recover personas stuck in ``activity_state='blocked'``.
+
+    A persona is flipped to ``blocked`` on budget exhaustion or a task error.
+    Nothing else will ever spawn work for them (the heartbeat and the
+    event-driven scheduler both filter on ``activity_state=='idle'``), so
+    without this sweep a once-blocked persona stays orphaned forever — even
+    after their daily budget auto-resets.
+
+    ``check_budget`` has the side effect of un-blocking a persona when their
+    budget is available, so we simply iterate all blocked personas and call
+    it. Personas that come back to ``idle`` get a ``persona.idle`` event so
+    the engine immediately tries to assign them work.
+    """
+    try:
+        from sqlalchemy import select
+
+        from opencompany.company.budget import check_budget
+        from opencompany.events.bus import publish
+        from opencompany.models.db import Persona
+        from opencompany.models.engine import async_session
+
+        async with async_session() as session:
+            result = await session.execute(
+                select(Persona).where(
+                    Persona.status == "active",
+                    Persona.activity_state == "blocked",
+                )
+            )
+            blocked = result.scalars().all()
+
+        if not blocked:
+            return
+
+        unblocked: list[str] = []
+        for persona in blocked:
+            # check_budget flips blocked→idle when budget is available.
+            has_budget, _ = await check_budget(persona.id)
+            if not has_budget:
+                continue
+            # Re-read to confirm the flip actually happened.
+            async with async_session() as session:
+                refreshed = await session.get(Persona, persona.id)
+                if refreshed and refreshed.activity_state == "idle":
+                    unblocked.append(persona.id)
+
+        for pid in unblocked:
+            await publish("persona.idle", {"persona_id": pid})
+
+        if unblocked:
+            logger.info("Unblocked %d personas: %s", len(unblocked), unblocked)
+    except Exception:
+        logger.exception("Unblock personas job failed")
 
 
 def start_scheduler():
@@ -253,6 +320,13 @@ def start_scheduler():
         seconds=120,
         id="expire_stale_assignments",
     )
+    if _UNBLOCK_INTERVAL > 0:
+        scheduler.add_job(
+            _unblock_personas_job,
+            "interval",
+            seconds=_UNBLOCK_INTERVAL,
+            id="unblock_personas",
+        )
     if _SNAPSHOT_INTERVAL > 0:
         scheduler.add_job(
             _snapshot_job,

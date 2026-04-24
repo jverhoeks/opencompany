@@ -21,15 +21,22 @@ _HIRE_CAPACITY_THRESHOLD = 1.5  # only hire when open_tickets / active_solvers >
 
 
 async def capacity_ratio() -> float:
-    """Return open_tickets / active_solvers. Values >1.5 suggest understaffing.
+    """Return pending_tickets / active_solvers. Values >1.5 suggest understaffing.
 
-    Returns float('inf') when there are no active solvers (always hire).
+    ``pending`` counts both ``open`` (backlog) AND ``assigned`` (routed but not
+    yet started) tickets. Counting only ``open`` undercounted demand — a busy
+    team with every ticket assigned and a handful waiting for a worker to free
+    up would report ratio=0 and block hiring, even when the team clearly had
+    more work than it could chew through. ``in_progress`` is NOT counted,
+    since those are actively being handled by existing capacity.
+
+    Returns ``float('inf')`` when there are no active solvers (always hire).
     """
     async with async_session() as session:
-        open_result = await session.execute(
-            select(func.count(Ticket.id)).where(Ticket.status == "open")
+        pending_result = await session.execute(
+            select(func.count(Ticket.id)).where(Ticket.status.in_(("open", "assigned")))
         )
-        open_count = open_result.scalar() or 0
+        pending_count = pending_result.scalar() or 0
 
         solver_result = await session.execute(
             select(func.count(Persona.id)).where(
@@ -41,7 +48,7 @@ async def capacity_ratio() -> float:
 
     if solver_count == 0:
         return float("inf")  # no solvers = always understaffed
-    return open_count / solver_count
+    return pending_count / solver_count
 
 
 async def _hire_persona(

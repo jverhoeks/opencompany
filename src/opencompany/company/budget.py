@@ -14,25 +14,52 @@ logger = logging.getLogger(__name__)
 async def check_budget(persona_id: str) -> tuple[bool, int]:
     """Check if a persona has budget remaining. Auto-resets on new day.
 
-    Returns (has_budget, remaining). If daily_token_budget is 0, budget is unlimited.
+    Also un-blocks personas whose ``activity_state=='blocked'`` once they have
+    budget available again. Without this, a persona that hits ``blocked``
+    (budget exhausted or task error) stays stuck forever — the heartbeat and
+    event-driven scheduler both filter on ``activity_state=='idle'``, so no
+    subsequent task is ever spawned for them. The blocked-reason is not
+    preserved, so we optimistically flip blocked→idle whenever budget is
+    available; if the real cause was a persistent task error, the persona
+    will hit ``blocked`` again on the next attempt (idempotent recovery).
+
+    Returns ``(has_budget, remaining)``. If ``daily_token_budget == 0``,
+    the budget is treated as unlimited.
     """
     async with async_session() as session:
         persona = await session.get(Persona, persona_id)
         if not persona:
             return False, 0
 
-        if persona.daily_token_budget == 0:
-            return True, 0  # unlimited
-
-        # Auto-reset on new day
         now = datetime.now(UTC)
-        if persona.budget_reset_at is None or persona.budget_reset_at.date() < now.date():
+        needs_commit = False
+
+        # Auto-reset on new day (only meaningful when budget is enforced).
+        if persona.daily_token_budget > 0 and (
+            persona.budget_reset_at is None or persona.budget_reset_at.date() < now.date()
+        ):
             persona.tokens_used_today = 0
             persona.budget_reset_at = now
+            needs_commit = True
+
+        # Compute budget availability from the (possibly just reset) state.
+        if persona.daily_token_budget == 0:
+            has_budget = True
+            remaining = 0  # unlimited
+        else:
+            remaining = max(persona.daily_token_budget - persona.tokens_used_today, 0)
+            has_budget = remaining > 0
+
+        # Un-block personas whose budget is now available.
+        if has_budget and persona.activity_state == "blocked":
+            persona.activity_state = "idle"
+            needs_commit = True
+            logger.info("Unblocked persona %s (budget available)", persona_id)
+
+        if needs_commit:
             await session.commit()
 
-        remaining = persona.daily_token_budget - persona.tokens_used_today
-        return remaining > 0, max(remaining, 0)
+        return has_budget, remaining
 
 
 async def consume_tokens(persona_id: str, tokens_in: int, tokens_out: int) -> None:

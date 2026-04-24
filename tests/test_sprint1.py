@@ -245,6 +245,48 @@ class TestCapacityHiring:
             ratio = await capacity_ratio()
         assert ratio == 1.5
 
+    async def test_capacity_ratio_counts_assigned_as_pending(self, factory):
+        """Assigned (but not yet started) tickets count as pending demand.
+
+        Counting only ``open`` undercounts demand: a team with every ticket
+        pushed out but sitting in ``assigned`` state (worker busy, spawn
+        dropped by the per-persona semaphore) looked idle to the old ratio.
+        """
+        async with factory() as session:
+            session.add(
+                Persona(
+                    id="solver-0",
+                    name="Solver 0",
+                    role="Dev",
+                    type="solver",
+                    backstory="x",
+                )
+            )
+            session.add(Ticket(title="Open", tags=["x"], status="open"))
+            session.add(
+                Ticket(
+                    title="Assigned",
+                    tags=["x"],
+                    status="assigned",
+                    assigned_to="solver-0",
+                )
+            )
+            # in_progress does NOT count — it's active capacity being used.
+            session.add(
+                Ticket(
+                    title="In Progress",
+                    tags=["x"],
+                    status="in_progress",
+                    assigned_to="solver-0",
+                )
+            )
+            await session.commit()
+
+        with patch("opencompany.company.personas.async_session", factory):
+            ratio = await capacity_ratio()
+        # 1 open + 1 assigned = 2 pending; 1 solver → 2.0
+        assert ratio == 2.0
+
     async def test_hire_rejected_when_capacity_sufficient(self, factory):
         """Hiring is rejected when capacity ratio < threshold."""
         async with factory() as session:
@@ -442,3 +484,41 @@ class TestStaleAssignmentExpiry:
         async with factory() as session:
             ticket = await session.get(Ticket, tid)
             assert ticket.status == "open"
+
+    async def test_expires_stale_assigned_tickets(self, factory):
+        """Assigned (but never started) tickets are reclaimed after the cutoff.
+
+        Regression guard: when ``_spawn_persona_task`` is dropped by the
+        per-persona semaphore (worker busy), the ticket sits in ``assigned``
+        status forever. The old stale-reclaim only targeted ``in_progress``
+        and missed this case, causing tickets to leak indefinitely.
+        """
+        stale_time = datetime.now(UTC) - timedelta(minutes=15)
+        async with factory() as session:
+            session.add(Persona(id="dev", name="Dev", role="Dev", type="solver", backstory="x"))
+            ticket = Ticket(
+                title="Assigned but never started",
+                tags=["x"],
+                status="assigned",
+                assigned_to="dev",
+            )
+            session.add(ticket)
+            await session.commit()
+            await session.refresh(ticket)
+            tid = ticket.id
+
+            ticket.updated_at = stale_time
+            await session.commit()
+
+        with (
+            patch("opencompany.models.engine.async_session", factory),
+            patch("opencompany.events.bus.get_redis", new_callable=AsyncMock),
+        ):
+            from opencompany.company.scheduler import _expire_stale_assignments_job
+
+            await _expire_stale_assignments_job()
+
+        async with factory() as session:
+            ticket = await session.get(Ticket, tid)
+            assert ticket.status == "open"
+            assert ticket.assigned_to is None
