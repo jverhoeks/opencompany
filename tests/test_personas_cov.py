@@ -348,3 +348,88 @@ def test_list_personas_sync_wrapper():
         result = list_personas_sync()
     assert result == [{"id": "test"}]
     mock.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# _list_personas — rich return shape with workload + budget signals
+# ---------------------------------------------------------------------------
+async def test_list_personas_includes_workload_and_budget(persona_session):
+    """_list_personas returns workload, budget, activity_state per persona.
+
+    Regression guard: the tool ``list_team`` relies on these fields being
+    present so LLM callers can make informed hire/assign/consolidate
+    decisions. If ``_list_personas`` silently drops them, the tool output
+    degrades to name-only and the guardrails become blind.
+    """
+    from opencompany.company.personas import _list_personas
+
+    async with persona_session() as session:
+        session.add(
+            Persona(
+                id="loaded-dev",
+                name="Loaded Dev",
+                role="Dev",
+                type="solver",
+                backstory="x",
+                activity_state="working",
+                daily_token_budget=10000,
+                tokens_used_today=4500,
+            )
+        )
+        session.add(
+            Ticket(
+                title="In-flight",
+                status="in_progress",
+                assigned_to="loaded-dev",
+            )
+        )
+        session.add(
+            Ticket(
+                title="Queued",
+                status="assigned",
+                assigned_to="loaded-dev",
+            )
+        )
+        # Done tickets do NOT count toward workload.
+        session.add(
+            Ticket(
+                title="Shipped",
+                status="done",
+                assigned_to="loaded-dev",
+            )
+        )
+        await session.commit()
+
+    personas = await _list_personas()
+    assert len(personas) == 1
+    dev = personas[0]
+    assert dev["id"] == "loaded-dev"
+    assert dev["workload"] == 2  # assigned + in_progress
+    assert dev["tokens_used_today"] == 4500
+    assert dev["daily_token_budget"] == 10000
+    assert dev["activity_state"] == "working"
+
+
+async def test_list_personas_zero_workload_for_idle_persona(persona_session):
+    """Personas with no assigned/in_progress tickets report workload=0."""
+    from opencompany.company.personas import _list_personas
+
+    async with persona_session() as session:
+        session.add(
+            Persona(
+                id="idle-dev",
+                name="Idle",
+                role="Dev",
+                type="solver",
+                backstory="x",
+                activity_state="idle",
+                daily_token_budget=0,  # unlimited
+            )
+        )
+        await session.commit()
+
+    personas = await _list_personas()
+    assert len(personas) == 1
+    assert personas[0]["workload"] == 0
+    assert personas[0]["tokens_used_today"] == 0
+    assert personas[0]["daily_token_budget"] == 0

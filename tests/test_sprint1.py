@@ -213,6 +213,163 @@ class TestClaimNext:
 
         assert result is None
 
+    async def test_claim_next_backs_off_for_lighter_peer(self, factory):
+        """Heavy claimer defers to an equally-matched lighter peer.
+
+        Regression guard: without this, a fast solver who finishes first
+        repeatedly wins pulls and drains the queue while equal-score peers
+        idle. The fairness gate lets the lighter peer pick up the ticket
+        on the next sweep or their own idle event.
+        """
+        async with factory() as session:
+            session.add(
+                Persona(
+                    id="heavy-dev",
+                    name="Heavy",
+                    role="Dev",
+                    type="solver",
+                    picks_up=["python"],
+                    backstory="x",
+                    tokens_used_today=5000,
+                )
+            )
+            session.add(
+                Persona(
+                    id="light-dev",
+                    name="Light",
+                    role="Dev",
+                    type="solver",
+                    picks_up=["python"],
+                    backstory="x",
+                    tokens_used_today=100,
+                )
+            )
+            session.add(Ticket(title="Py task", tags=["python"], status="open"))
+            await session.commit()
+
+        with patch("opencompany.company.taskboard.async_session", factory):
+            result = await claim_next("heavy-dev")
+
+        assert result is None  # heavy-dev backed off
+
+        async with factory() as session:
+            from sqlalchemy import select
+
+            tickets = (await session.execute(select(Ticket))).scalars().all()
+            # Ticket stays open for the lighter peer to grab.
+            assert all(t.status == "open" for t in tickets)
+            assert all(t.assigned_to is None for t in tickets)
+
+    async def test_claim_next_proceeds_when_no_lighter_peer(self, factory):
+        """Lightest solver on the team claims normally (no peer is lighter)."""
+        async with factory() as session:
+            session.add(
+                Persona(
+                    id="light-dev",
+                    name="Light",
+                    role="Dev",
+                    type="solver",
+                    picks_up=["python"],
+                    backstory="x",
+                    tokens_used_today=100,
+                )
+            )
+            session.add(
+                Persona(
+                    id="heavy-dev",
+                    name="Heavy",
+                    role="Dev",
+                    type="solver",
+                    picks_up=["python"],
+                    backstory="x",
+                    tokens_used_today=5000,
+                )
+            )
+            session.add(Ticket(title="Py task", tags=["python"], status="open"))
+            await session.commit()
+
+        with patch("opencompany.company.taskboard.async_session", factory):
+            result = await claim_next("light-dev")
+
+        assert result is not None
+        assert result["title"] == "Py task"
+
+    async def test_claim_next_ignores_peer_with_lower_score(self, factory):
+        """Peers with worse tag match don't trigger the fairness back-off.
+
+        The fairness gate only applies to peers with equal-or-better tag
+        match. A peer who can't do this ticket shouldn't block the only
+        qualified solver from claiming it, even if that peer has less load.
+        """
+        async with factory() as session:
+            session.add(
+                Persona(
+                    id="py-dev",
+                    name="Py",
+                    role="Dev",
+                    type="solver",
+                    picks_up=["python"],
+                    backstory="x",
+                    tokens_used_today=5000,
+                )
+            )
+            # Peer with UNRELATED tag pool — no match for this ticket.
+            session.add(
+                Persona(
+                    id="js-dev",
+                    name="JS",
+                    role="Dev",
+                    type="solver",
+                    picks_up=["javascript"],
+                    backstory="x",
+                    tokens_used_today=100,
+                )
+            )
+            session.add(Ticket(title="Py task", tags=["python"], status="open"))
+            await session.commit()
+
+        with patch("opencompany.company.taskboard.async_session", factory):
+            result = await claim_next("py-dev")
+
+        assert result is not None
+        assert result["title"] == "Py task"
+
+    async def test_claim_next_fairness_respects_margin(self, factory):
+        """Small token differences (below the fairness margin) don't trigger back-off."""
+        async with factory() as session:
+            # Both solvers at roughly the same load (below margin).
+            session.add(
+                Persona(
+                    id="dev-a",
+                    name="A",
+                    role="Dev",
+                    type="solver",
+                    picks_up=["python"],
+                    backstory="x",
+                    tokens_used_today=1000,
+                )
+            )
+            session.add(
+                Persona(
+                    id="dev-b",
+                    name="B",
+                    role="Dev",
+                    type="solver",
+                    picks_up=["python"],
+                    backstory="x",
+                    tokens_used_today=900,  # 100 tokens lighter — below margin of 500
+                )
+            )
+            session.add(Ticket(title="Py task", tags=["python"], status="open"))
+            await session.commit()
+
+        with patch("opencompany.company.taskboard.async_session", factory):
+            result = await claim_next("dev-a")
+
+        # Difference is only 100 tokens — below the fairness margin, so dev-a
+        # still claims rather than back off.
+        assert result is not None
+
 
 # ---------------------------------------------------------------------------
 # P3: Capacity-aware hiring
