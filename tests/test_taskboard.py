@@ -2,9 +2,10 @@
 
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from opencompany.company.taskboard import find_best_solver
+from opencompany.company.taskboard import _fuzzy_tag_score, find_best_solver
 from opencompany.models.db import Persona, Ticket
 
 
@@ -47,6 +48,74 @@ def test_find_best_solver_multiple_tag_overlap():
     ]
     best = find_best_solver(tags=["python", "security"], solvers=solvers)
     assert best["id"] == "dev-1"  # more skill overlap wins despite higher workload
+
+
+# ---------------------------------------------------------------------------
+# _fuzzy_tag_score — length-weighted substring matching
+# ---------------------------------------------------------------------------
+def test_fuzzy_score_exact_match_full_credit():
+    """Exact tag match is worth 1.0 per ticket tag."""
+    assert _fuzzy_tag_score({"python"}, {"python"}) == 1.0
+    assert _fuzzy_tag_score({"python", "backend"}, {"python", "backend"}) == 2.0
+
+
+def test_fuzzy_score_length_weighted_partial():
+    """Short solver tag inside a long ticket tag earns weak partial credit.
+
+    Regression guard: with the old flat-0.5 substring scoring, a broad
+    solver tag ``"dev"`` (len 3) matched every ``*-dev`` ticket at 0.5 —
+    equal to a specialist's exact-match credit on a simpler tag. Now the
+    credit is length-weighted so broad tags get a fraction of the full
+    partial credit.
+    """
+    # "dev" (3) inside "frontend-dev" (12): 0.5 * 3/12 = 0.125
+    score = _fuzzy_tag_score({"dev"}, {"frontend-dev"})
+    assert score == pytest.approx(0.125, abs=0.001)
+
+
+def test_fuzzy_score_specialist_outscores_generalist():
+    """Specialist with exact match beats a broad-tag generalist on the same tag."""
+    specialist = _fuzzy_tag_score({"frontend-dev"}, {"frontend-dev"})
+    generalist = _fuzzy_tag_score({"dev"}, {"frontend-dev"})
+    assert specialist == 1.0
+    assert generalist < 0.2
+    assert specialist > generalist
+
+
+def test_fuzzy_score_best_partial_not_summed():
+    """Multiple substring hits per ticket tag don't stack — best wins.
+
+    Prevents a solver with many redundant variant tags from accruing
+    disproportionate score. Under the old algorithm, each matching solver
+    tag simply added 0.5 (via ``break`` per ticket tag) — which *did*
+    prevent stacking, but the shorter tag still got full 0.5 credit.
+    Here we check both: length-weight applies AND best-partial wins.
+    """
+    # "dev" (3) in "frontend-react-dev" (18): 0.5 * 3/18 ≈ 0.083
+    # "react" (5) in "frontend-react-dev" (18): 0.5 * 5/18 ≈ 0.139
+    # Best wins → 0.139, NOT summed 0.222
+    score = _fuzzy_tag_score({"dev", "react"}, {"frontend-react-dev"})
+    assert score == pytest.approx(0.5 * 5 / 18, abs=0.001)
+
+
+def test_fuzzy_score_ticket_tag_inside_solver_tag():
+    """Ticket tag contained in a longer solver tag earns partial credit."""
+    # "backend" (7) in "backend-dev" (11): 0.5 * 7/11 ≈ 0.318
+    score = _fuzzy_tag_score({"backend-dev"}, {"backend"})
+    assert score == pytest.approx(0.5 * 7 / 11, abs=0.001)
+
+
+def test_fuzzy_score_no_overlap():
+    """Completely unrelated tags earn 0."""
+    assert _fuzzy_tag_score({"python"}, {"rust"}) == 0.0
+    assert _fuzzy_tag_score({"frontend"}, {"database"}) == 0.0
+
+
+def test_fuzzy_score_handles_empty_tags():
+    """Empty tag sets don't explode."""
+    assert _fuzzy_tag_score(set(), {"python"}) == 0.0
+    assert _fuzzy_tag_score({"python"}, set()) == 0.0
+    assert _fuzzy_tag_score(set(), set()) == 0.0
 
 
 # ---------------------------------------------------------------------------

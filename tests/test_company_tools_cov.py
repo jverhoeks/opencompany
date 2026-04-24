@@ -119,12 +119,22 @@ def test_fire_persona_tool_default_reason():
 
 def test_hire_persona_tool_with_tools_and_picks_up():
     """hire_persona parses tools and picks_up comma-separated strings."""
+    from unittest.mock import AsyncMock
+
     from opencompany.agents.tools.company import hire_persona
 
-    with patch(
-        "opencompany.company.personas.hire_persona_sync",
-        return_value="Hired Dev (id=dev)",
-    ) as mock:
+    with (
+        # Let the guardrail pass so the hire proceeds.
+        patch(
+            "opencompany.company.personas.capacity_ratio",
+            new_callable=AsyncMock,
+            return_value=3.0,
+        ),
+        patch(
+            "opencompany.company.personas.hire_persona_sync",
+            return_value="Hired Dev (id=dev)",
+        ) as mock,
+    ):
         hire_persona.__wrapped__(
             persona_id="dev",
             name="Dev",

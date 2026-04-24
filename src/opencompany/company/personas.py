@@ -280,14 +280,42 @@ def fire_persona_sync(**kwargs) -> str:
 
 
 async def _list_personas(reports_to: str | None = None) -> list[dict]:
+    """List active personas with workload and budget signals.
+
+    The return shape deliberately includes load signals (``workload``,
+    ``tokens_used_today``, ``daily_token_budget``, ``activity_state``) so that
+    LLM agents calling ``list_team`` can make informed hire/reassign decisions
+    rather than guessing from name+role alone. ``workload`` counts tickets the
+    persona currently holds in ``assigned`` or ``in_progress`` states.
+    """
     async with async_session() as session:
         q = select(Persona).where(Persona.status == "active")
         if reports_to:
             q = q.where(Persona.reports_to == reports_to)
-        result = await session.execute(q)
+        rows = (await session.execute(q)).scalars().all()
+
+        # Single aggregated query for per-persona workload — avoid N+1.
+        workload_stmt = (
+            select(Ticket.assigned_to, func.count(Ticket.id))
+            .where(Ticket.status.in_(("assigned", "in_progress")))
+            .group_by(Ticket.assigned_to)
+        )
+        workload_rows = (await session.execute(workload_stmt)).all()
+        workload_by_id: dict[str, int] = {pid: count for pid, count in workload_rows if pid}
+
         personas = [
-            {"id": p.id, "name": p.name, "role": p.role, "type": p.type, "skills": p.skills}
-            for p in result.scalars().all()
+            {
+                "id": p.id,
+                "name": p.name,
+                "role": p.role,
+                "type": p.type,
+                "skills": p.skills,
+                "activity_state": p.activity_state,
+                "workload": workload_by_id.get(p.id, 0),
+                "tokens_used_today": p.tokens_used_today or 0,
+                "daily_token_budget": p.daily_token_budget or 0,
+            }
+            for p in rows
         ]
         logger.debug("Listed %d active personas (reports_to=%s)", len(personas), reports_to)
         return personas

@@ -182,12 +182,22 @@ def test_update_ticket_tool():
 # ---------------------------------------------------------------------------
 def test_hire_persona_tool():
     """hire_persona tool parses comma-separated skills."""
+    from unittest.mock import AsyncMock
+
     from opencompany.agents.tools.company import hire_persona
 
-    with patch(
-        "opencompany.company.personas.hire_persona_sync",
-        return_value="Hired Alex as Dev (id=new-dev)",
-    ) as mock:
+    with (
+        # Let the guardrail pass (capacity ratio >= threshold = understaffed).
+        patch(
+            "opencompany.company.personas.capacity_ratio",
+            new_callable=AsyncMock,
+            return_value=3.0,
+        ),
+        patch(
+            "opencompany.company.personas.hire_persona_sync",
+            return_value="Hired Alex as Dev (id=new-dev)",
+        ) as mock,
+    ):
         result = hire_persona.__wrapped__(
             persona_id="new-dev",
             name="Alex",
@@ -200,6 +210,42 @@ def test_hire_persona_tool():
     assert "Hired Alex" in result
     call_kwargs = mock.call_args[1]
     assert call_kwargs["skills"] == ["python", "backend"]
+
+
+def test_hire_persona_tool_blocked_by_guardrail():
+    """hire_persona returns the guardrail's steering message when team has capacity.
+
+    Regression guard: the tool must short-circuit on guardrail steering —
+    otherwise the agent sees a success-ish message ``Hired …`` when in
+    fact no hire happened, or a hard error from the DB-layer check that
+    reads less usefully than the guardrail's directive.
+    """
+    from unittest.mock import AsyncMock
+
+    from opencompany.agents.tools.company import hire_persona
+
+    with (
+        patch(
+            "opencompany.company.personas.capacity_ratio",
+            new_callable=AsyncMock,
+            return_value=0.5,  # team has plenty of capacity — don't hire.
+        ),
+        patch(
+            "opencompany.company.personas.hire_persona_sync",
+        ) as hire_mock,
+    ):
+        result = hire_persona.__wrapped__(
+            persona_id="redundant",
+            name="Redundant",
+            role="Dev",
+            persona_type="solver",
+            skills="python",
+            backstory="Not needed.",
+        )
+
+    assert "GUARDRAIL" in result
+    assert "Do NOT hire" in result
+    hire_mock.assert_not_called()
 
 
 def test_fire_persona_tool():
@@ -216,11 +262,21 @@ def test_fire_persona_tool():
 
 
 def test_list_team_tool_with_data():
-    """list_team tool formats persona data into readable lines."""
+    """list_team tool formats persona data into readable lines with workload."""
     from opencompany.agents.tools.company import list_team
 
     mock_personas = [
-        {"id": "dev-1", "name": "Jamie", "role": "Dev", "type": "solver", "skills": ["python"]},
+        {
+            "id": "dev-1",
+            "name": "Jamie",
+            "role": "Dev",
+            "type": "solver",
+            "skills": ["python"],
+            "activity_state": "idle",
+            "workload": 2,
+            "tokens_used_today": 500,
+            "daily_token_budget": 1000,
+        },
     ]
 
     with patch("opencompany.company.personas.list_personas_sync", return_value=mock_personas):
@@ -229,6 +285,36 @@ def test_list_team_tool_with_data():
     assert "Jamie" in result
     assert "Dev" in result
     assert "solver" in result
+    assert "workload=2" in result
+    assert "state=idle" in result
+    # Budget formatted as used/total with percent.
+    assert "tokens=500/1000" in result
+    assert "50%" in result
+
+
+def test_list_team_tool_unlimited_budget():
+    """list_team tool formats unlimited-budget personas distinctly."""
+    from opencompany.agents.tools.company import list_team
+
+    mock_personas = [
+        {
+            "id": "ceo",
+            "name": "Alice",
+            "role": "CEO",
+            "type": "manager",
+            "skills": ["strategy"],
+            "activity_state": "idle",
+            "workload": 0,
+            "tokens_used_today": 1200,
+            "daily_token_budget": 0,  # unlimited
+        },
+    ]
+
+    with patch("opencompany.company.personas.list_personas_sync", return_value=mock_personas):
+        result = list_team.__wrapped__()
+
+    assert "unlimited" in result
+    assert "tokens=1200" in result
 
 
 def test_list_team_tool_empty():

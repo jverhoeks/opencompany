@@ -2,6 +2,7 @@
 
 import logging
 import random
+from collections.abc import Sequence
 from datetime import UTC, datetime
 
 from sqlalchemy import select, update
@@ -15,22 +16,44 @@ logger = logging.getLogger(__name__)
 
 
 def _fuzzy_tag_score(solver_tags: set[str], ticket_tags: set[str]) -> float:
-    """Score a solver against ticket tags using exact + substring matching.
+    """Score a solver against ticket tags using exact + length-weighted substring.
 
-    Exact match = 1.0 per tag, substring match = 0.5 per tag.
-    E.g. solver skill "frontend" partially matches ticket tag "frontend-dev",
-    and "design" partially matches "web-design".
+    - Exact match: ``1.0`` per ticket tag.
+    - Substring match: ``0.5 × (shorter_len / longer_len)``, taking the best
+      partial across all solver tags (not summed — one ticket tag, one
+      partial credit).
+
+    The length-weighting stops broad generic tags from dominating specialised
+    tickets. Example: a solver with ``picks_up=["dev"]`` used to score 0.5 on
+    every ``*-dev`` ticket (equal to a specialist's full substring match),
+    which let catch-all generalists outscore focused specialists on tickets
+    the specialists were hired to own. With weighting, ``"dev"`` (len 3) on
+    ``"frontend-dev"`` (len 12) scores only ``0.5 × 3/12 = 0.125`` — a specialist
+    with exact-match on ``"frontend-dev"`` still wins 1.0 vs 0.125.
+
+    We also bound credit to the *best* partial per ticket tag, so a solver
+    with many redundant variants of the same tag can't stack partial credit.
     """
     score = 0.0
     for tt in ticket_tags:
         if tt in solver_tags:
             score += 1.0
             continue
-        # Substring: does any solver tag appear inside ticket tag or vice-versa?
+        best_partial = 0.0
         for st in solver_tags:
-            if st in tt or tt in st:
-                score += 0.5
-                break
+            if st == tt:
+                # Unreachable via the ``tt in solver_tags`` fast-path, but
+                # defensively handle zero-length pathologies below.
+                continue
+            if not st or not tt:
+                continue
+            if st in tt:
+                ratio = len(st) / len(tt)
+                best_partial = max(best_partial, 0.5 * ratio)
+            elif tt in st:
+                ratio = len(tt) / len(st)
+                best_partial = max(best_partial, 0.5 * ratio)
+        score += best_partial
     return score
 
 
@@ -169,11 +192,52 @@ def update_ticket_sync(**kwargs):
     return _run_async(_update_ticket(**kwargs))
 
 
+# Minimum token gap for a peer to be considered "notably lighter" than
+# the claimer. Small enough to engage the fairness back-off during a
+# busy day, large enough to avoid thrashing around rounding noise.
+_FAIRNESS_MARGIN_TOKENS = 500
+
+
+def _has_lighter_peer_for(
+    ticket: Ticket,
+    peers: Sequence[Persona],
+    claimer_score: float,
+    claimer_tokens: int,
+) -> bool:
+    """Return ``True`` if a peer solver is equally-or-better matched AND less loaded.
+
+    "Less loaded" uses ``tokens_used_today`` with a ``_FAIRNESS_MARGIN_TOKENS``
+    threshold — a peer merely a few tokens behind doesn't trigger back-off.
+    Only invoked from ``claim_next`` so we can defer a claim to let the
+    lighter peer pick the ticket up via the periodic sweep or their own
+    idle event. Without this, a fast solver drains the queue while equal
+    peers idle, even though the push-path (``_assign_to_solver``) is
+    workload-aware — the pull path bypassed it.
+    """
+    ticket_tags = {t.lower() for t in ticket.tags}
+    for peer in peers:
+        peer_tags = {s.lower() for s in (peer.picks_up or peer.skills or [])}
+        if not peer_tags:
+            continue
+        peer_score = _fuzzy_tag_score(peer_tags, ticket_tags)
+        if peer_score < claimer_score:
+            continue
+        peer_tokens = peer.tokens_used_today or 0
+        if peer_tokens + _FAIRNESS_MARGIN_TOKENS < claimer_tokens:
+            return True
+    return False
+
+
 async def claim_next(persona_id: str) -> dict | None:
     """Atomically claim the best open ticket for a persona.
 
-    Uses tag-based matching (picks_up / skills) to find the best fit.
-    Returns a dict with ticket info if claimed, None otherwise.
+    Uses tag-based matching (picks_up / skills) to find the best fit, then
+    applies a fairness back-off: if a peer with equal-or-better match is
+    notably less loaded, skip this ticket and let them pick it up via the
+    sweep or their own idle event. Prevents a fast solver from
+    monopolising the queue while equal peers sit idle.
+
+    Returns a dict with ticket info if claimed, ``None`` otherwise.
     """
     async with async_session() as session:
         persona = await session.get(Persona, persona_id)
@@ -183,6 +247,15 @@ async def claim_next(persona_id: str) -> dict | None:
         picks_up = persona.picks_up or persona.skills or []
         if not picks_up:
             return None
+
+        # Fetch peer solvers once for fairness comparison. Small teams make
+        # this a handful of rows — no need for a smarter query shape.
+        peer_stmt = select(Persona).where(
+            Persona.type == "solver",
+            Persona.status == "active",
+            Persona.id != persona_id,
+        )
+        peers = (await session.execute(peer_stmt)).scalars().all()
 
         result = await session.execute(
             select(Ticket).where(
@@ -206,11 +279,21 @@ async def claim_next(persona_id: str) -> dict | None:
                 scored.append((score, ticket))
         scored.sort(key=lambda p: (-p[0], p[1].id))
 
+        claimer_tokens = persona.tokens_used_today or 0
+
         # Conditional UPDATE: only update if the row is still unassigned and
         # status still open. Rowcount tells us whether we actually won the
         # race — this works on Postgres and SQLite alike without needing
         # SELECT ... FOR UPDATE SKIP LOCKED (which SQLite doesn't support).
         for score, ticket in scored:
+            if _has_lighter_peer_for(ticket, peers, score, claimer_tokens):
+                logger.debug(
+                    "Persona %s backing off ticket #%d (lighter peer available)",
+                    persona_id,
+                    ticket.id,
+                )
+                continue
+
             update_stmt = (
                 update(Ticket)
                 .where(
@@ -233,7 +316,7 @@ async def claim_next(persona_id: str) -> dict | None:
             await session.commit()
 
             logger.info(
-                "Persona %s claimed ticket #%d (score=%.1f)",
+                "Persona %s claimed ticket #%d (score=%.2f)",
                 persona_id,
                 ticket.id,
                 score,

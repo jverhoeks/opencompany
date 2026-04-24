@@ -30,7 +30,24 @@ def hire_persona(
         tools: Comma-separated tool names (optional, e.g. "read_file,write_file")
         picks_up: Comma-separated tags this persona picks up (optional)
     """
+    from opencompany.agents.hooks import HiringGuardrail
     from opencompany.company.personas import hire_persona_sync
+    from opencompany.utils import _run_async
+
+    # Guardrail: check capacity before attempting the hire. This returns a
+    # steering message (not a hard error) when the team already has enough
+    # capacity — the agent sees corrective context instead of a cryptic
+    # rejection, so they can redirect to assigning an existing team member.
+    # ``_hire_persona`` still hard-blocks on the same check as defense-in-depth.
+    steering = _run_async(
+        HiringGuardrail().check_hire(
+            "hire_persona",
+            {"persona_id": persona_id, "name": name, "role": role},
+        )
+    )
+    if steering:
+        logger.info("[tool] hire_persona: guardrail blocked hire of %s (%s)", persona_id, role)
+        return steering
 
     skill_list = [s.strip() for s in skills.split(",") if s.strip()]
     tool_list = [t.strip() for t in tools.split(",") if t.strip()] if tools else None
@@ -110,7 +127,13 @@ def fire_persona(persona_id: str, reason: str = "") -> str:
 
 @tool
 def list_team(reports_to: str = "") -> str:
-    """List active personas in the company.
+    """List active personas in the company with workload and budget signals.
+
+    The output includes workload (open ticket count), ``tokens_used_today``
+    vs ``daily_token_budget``, and ``activity_state`` so the caller can make
+    informed hire/reassign/consolidate decisions. Use this BEFORE deciding
+    to hire — if an existing team member already covers the needed role,
+    assign the work to them instead of growing headcount.
 
     Args:
         reports_to: Filter by manager ID (optional, empty = all)
@@ -120,5 +143,20 @@ def list_team(reports_to: str = "") -> str:
     personas = list_personas_sync(reports_to=reports_to or None)
     if not personas:
         return "No active personas found"
-    lines = [f"- {p['name']} ({p['role']}) [{p['type']}] skills={p['skills']}" for p in personas]
+
+    lines = []
+    for p in personas:
+        budget = p.get("daily_token_budget") or 0
+        used = p.get("tokens_used_today") or 0
+        if budget > 0:
+            budget_str = f"tokens={used}/{budget} ({int(used / budget * 100)}%)"
+        else:
+            budget_str = f"tokens={used} (unlimited)"
+        lines.append(
+            f"- {p['name']} ({p['role']}) [{p['type']}] "
+            f"state={p.get('activity_state', 'unknown')} "
+            f"workload={p.get('workload', 0)} "
+            f"{budget_str} "
+            f"skills={p['skills']}"
+        )
     return "\n".join(lines)
