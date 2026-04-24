@@ -96,16 +96,40 @@ HEARTBEAT_PROMPTS = {
 
 
 async def _persona_heartbeat_job():
-    """Periodic heartbeat: idle personas check in and take autonomous action."""
+    """Periodic heartbeat: idle personas check in and take autonomous action.
+
+    Gated on "is there anything worth checking in on?" — without the gate,
+    every idle persona burned tokens on every tick regardless of board
+    state. At a 60-second heartbeat with 12 personas that's ~17k no-op
+    prompts per day on an empty board. We now only fire if there's at
+    least one open ticket OR one ticket that's been stuck ``in_progress``
+    longer than ``_STALE_MINUTES`` (meaning the current owner needs help).
+    """
     try:
-        from sqlalchemy import select
+        from sqlalchemy import and_, func, or_, select
 
         from opencompany.company.budget import check_budget
         from opencompany.company.engine import _spawn_persona_task
-        from opencompany.models.db import Persona
+        from opencompany.models.db import Persona, Ticket
         from opencompany.models.engine import async_session
 
         async with async_session() as session:
+            stale_cutoff = datetime.now(UTC) - timedelta(minutes=_STALE_MINUTES)
+            has_work = await session.scalar(
+                select(func.count(Ticket.id)).where(
+                    or_(
+                        Ticket.status == "open",
+                        and_(
+                            Ticket.status == "in_progress",
+                            Ticket.updated_at < stale_cutoff,
+                        ),
+                    )
+                )
+            )
+            if not has_work:
+                logger.debug("Heartbeat: no open or stuck tickets — skipping")
+                return
+
             result = await session.execute(
                 select(Persona).where(
                     Persona.status == "active",
@@ -266,19 +290,23 @@ async def _unblock_personas_job():
     without this sweep a once-blocked persona stays orphaned forever — even
     after their daily budget auto-resets.
 
-    ``check_budget`` has the side effect of un-blocking a persona when their
-    budget is available, so we simply iterate all blocked personas and call
-    it. Personas that come back to ``idle`` get a ``persona.idle`` event so
-    the engine immediately tries to assign them work.
+    Flips blocked→idle inline in a single session (no ping-pong through
+    ``check_budget`` for each persona). A persona is un-blocked when their
+    daily budget is unlimited OR their daily budget reset has already
+    happened OR they have budget headroom. Each unblocked persona gets
+    a ``persona.idle`` event so the engine assigns them work immediately.
     """
     try:
+        from datetime import UTC as _UTC
+        from datetime import datetime as _dt
+
         from sqlalchemy import select
 
-        from opencompany.company.budget import check_budget
         from opencompany.events.bus import publish
         from opencompany.models.db import Persona
         from opencompany.models.engine import async_session
 
+        unblocked_ids: list[str] = []
         async with async_session() as session:
             result = await session.execute(
                 select(Persona).where(
@@ -287,27 +315,34 @@ async def _unblock_personas_job():
                 )
             )
             blocked = result.scalars().all()
+            now = _dt.now(_UTC)
+            for persona in blocked:
+                # Auto-reset daily tokens if we've crossed a day boundary.
+                if persona.daily_token_budget > 0 and (
+                    persona.budget_reset_at is None or persona.budget_reset_at.date() < now.date()
+                ):
+                    persona.tokens_used_today = 0
+                    persona.budget_reset_at = now
 
-        if not blocked:
-            return
+                has_budget = (
+                    persona.daily_token_budget == 0
+                    or (persona.tokens_used_today or 0) < persona.daily_token_budget
+                )
+                if has_budget:
+                    persona.activity_state = "idle"
+                    unblocked_ids.append(persona.id)
 
-        unblocked: list[str] = []
-        for persona in blocked:
-            # check_budget flips blocked→idle when budget is available.
-            has_budget, _ = await check_budget(persona.id)
-            if not has_budget:
-                continue
-            # Re-read to confirm the flip actually happened.
-            async with async_session() as session:
-                refreshed = await session.get(Persona, persona.id)
-                if refreshed and refreshed.activity_state == "idle":
-                    unblocked.append(persona.id)
+            if unblocked_ids:
+                await session.commit()
 
-        for pid in unblocked:
-            await publish("persona.idle", {"persona_id": pid})
+        for pid in unblocked_ids:
+            try:
+                await publish("persona.idle", {"persona_id": pid})
+            except Exception:
+                logger.exception("Failed to publish persona.idle for %s", pid)
 
-        if unblocked:
-            logger.info("Unblocked %d personas: %s", len(unblocked), unblocked)
+        if unblocked_ids:
+            logger.info("Unblocked %d personas: %s", len(unblocked_ids), unblocked_ids)
     except Exception:
         logger.exception("Unblock personas job failed")
 

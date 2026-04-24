@@ -106,6 +106,62 @@ class TestPerTaskBudget:
 
         assert result is True
 
+    async def test_check_task_budget_parks_after_loop_threshold(self, factory):
+        """Ticket is parked as ``needs_attention`` after repeated budget requeues.
+
+        Regression guard for the requeue livelock: a ticket whose remaining
+        budget is just below ``_MIN_USEFUL_TOKENS`` but which never actually
+        consumes tokens (spawn dies before run_persona) used to oscillate
+        forever between ``open`` and ``assigned``. After ``_MAX_BUDGET_REQUEUES``
+        requeues the ticket is parked so an operator can intervene.
+        """
+        from opencompany.models.db import WorkLog
+
+        async with factory() as session:
+            session.add(Persona(id="dev", name="Dev", role="Dev", type="solver", backstory="x"))
+            ticket = Ticket(
+                title="Loop",
+                tags=["x"],
+                budget_tokens=300,
+                tokens_in=150,
+                tokens_out=0,  # remaining = 150 < 200 triggers requeue
+                status="assigned",
+                assigned_to="dev",
+            )
+            session.add(ticket)
+            await session.commit()
+            await session.refresh(ticket)
+            tid = ticket.id
+            # Seed prior requeue audit entries to hit the park threshold.
+            for _ in range(3):
+                session.add(
+                    WorkLog(
+                        persona_id="dev",
+                        action="requeued",
+                        ticket_id=tid,
+                        details="budget_exhausted",
+                    )
+                )
+            await session.commit()
+
+        with (
+            patch("opencompany.company.engine.async_session", factory),
+            patch("opencompany.company.engine.publish", new_callable=AsyncMock) as mock_publish,
+        ):
+            from opencompany.company.engine import _check_task_budget
+
+            result = await _check_task_budget(tid, "dev")
+
+        assert result is False
+        # No republish — we park instead of re-queueing again.
+        mock_publish.assert_not_awaited()
+
+        async with factory() as session:
+            ticket = await session.get(Ticket, tid)
+            assert ticket is not None
+            assert ticket.status == "needs_attention"
+            assert ticket.assigned_to is None
+
 
 # ---------------------------------------------------------------------------
 # P2: Pull-based claim_next

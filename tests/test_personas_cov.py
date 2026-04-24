@@ -174,7 +174,11 @@ async def test_hire_post_sweep_failure(persona_session):
 # _fire_persona edge cases
 # ---------------------------------------------------------------------------
 async def test_fire_persona_reassigns_orphaned_tickets(persona_session):
-    """Firing a persona reassigns their in-progress tickets to open pool."""
+    """Firing a persona reassigns their in-progress tickets to open pool.
+
+    Also republishes ``ticket.created`` for each orphan so routing fires
+    immediately rather than waiting for the 30-second sweep.
+    """
     async with persona_session() as session:
         session.add(
             Persona(
@@ -210,11 +214,18 @@ async def test_fire_persona_reassigns_orphaned_tickets(persona_session):
         )
         await session.commit()
 
-    result = await _fire_persona("busy-dev", reason="restructure")
+    published: list[tuple[str, dict]] = []
+
+    async def fake_publish(event_type, data):
+        published.append((event_type, data))
+
+    with patch("opencompany.events.bus.publish", fake_publish):
+        result = await _fire_persona("busy-dev", reason="restructure")
     assert "Fired Busy Dev" in result
 
     async with persona_session() as session:
         persona = await session.get(Persona, "busy-dev")
+        assert persona is not None
         assert persona.status == "fired"
 
         from sqlalchemy import select
@@ -227,6 +238,11 @@ async def test_fire_persona_reassigns_orphaned_tickets(persona_session):
         assert len(done_tickets) == 1
         for t in open_tickets:
             assert t.assigned_to is None
+
+    # Exactly two ticket.created events — one per reclaimed orphan.
+    created_events = [d for e, d in published if e == "ticket.created"]
+    assert len(created_events) == 2
+    assert all("ticket_id" in d for d in created_events)
 
 
 # ---------------------------------------------------------------------------

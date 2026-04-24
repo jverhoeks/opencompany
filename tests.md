@@ -1,14 +1,14 @@
 # Test Report
 
-**Date:** 2026-04-24 16:16  
+**Date:** 2026-04-24 16:57  
 
 
 ## Summary
 
 | Metric | Count |
 |--------|-------|
-| Total  | 462 |
-| Passed | 460 |
+| Total  | 471 |
+| Passed | 469 |
 | Failed | 0 |
 | Errors | 0 |
 | Skipped | 2 |
@@ -131,7 +131,7 @@
 | `test_patch_persona_config_name_and_role` | pass |
 | `test_dashboard_stream_returns_sse` | skip |
 
-### test_e2e.py (53/53 passed) ok
+### test_e2e.py (54/54 passed) ok
 
 | Test | Status |
 |------|--------|
@@ -186,10 +186,11 @@
 | `test_seed_populates_model_id` | pass |
 | `test_engine_budget_blocks_over_budget_persona` | pass |
 | `test_heartbeat_triggers_idle_personas` | pass |
+| `test_heartbeat_skips_when_no_work` | pass |
 | `test_heartbeat_skips_busy_personas` | pass |
 | `test_heartbeat_skips_over_budget` | pass |
 
-### test_engine_cov.py (34/34 passed) ok
+### test_engine_cov.py (41/41 passed) ok
 
 | Test | Status |
 |------|--------|
@@ -205,6 +206,13 @@
 | `test_add_ticket_tokens_missing_ticket` | pass |
 | `test_trigger_review_falls_back_to_manager` | pass |
 | `test_trigger_review_ticket_not_found` | pass |
+| `test_trigger_review_excludes_worker_from_fallback` | pass |
+| `test_trigger_review_prefers_non_worker_creator` | pass |
+| `test_release_ticket_for_retry_flips_open` | pass |
+| `test_release_ticket_noop_when_already_started` | pass |
+| `test_try_claim_ticket_wins_first` | pass |
+| `test_find_hr_persona_id_by_role` | pass |
+| `test_find_hr_persona_id_none_when_missing` | pass |
 | `test_spawn_persona_task_full_run` | pass |
 | `test_spawn_persona_task_error_sets_blocked` | pass |
 | `test_on_persona_idle_claims_ticket` | pass |
@@ -415,7 +423,7 @@
 | `test_start_scheduler_with_heartbeat` | pass |
 | `test_start_scheduler_with_all_jobs` | pass |
 
-### test_sprint1.py (22/22 passed) ok
+### test_sprint1.py (23/23 passed) ok
 
 | Test | Status |
 |------|--------|
@@ -423,6 +431,7 @@
 | `test_check_task_budget_requeues_exhausted` | pass |
 | `test_check_task_budget_allows_with_remaining` | pass |
 | `test_check_task_budget_unlimited_when_zero` | pass |
+| `test_check_task_budget_parks_after_loop_threshold` | pass |
 | `test_claim_next_claims_best_match` | pass |
 | `test_claim_next_returns_none_when_no_tickets` | pass |
 | `test_claim_next_returns_none_for_inactive_persona` | pass |
@@ -566,7 +575,7 @@
 |------|--------|
 | `test_find_best_solver_matches_skills` | pass |
 | `test_find_best_solver_prefers_lower_workload` | pass |
-| `test_find_best_solver_no_match_falls_back_to_least_busy` | pass |
+| `test_find_best_solver_no_match_returns_none` | pass |
 | `test_find_best_solver_empty_solvers` | pass |
 | `test_find_best_solver_multiple_tag_overlap` | pass |
 | `test_fuzzy_score_exact_match_full_credit` | pass |

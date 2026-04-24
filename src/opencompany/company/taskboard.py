@@ -58,10 +58,16 @@ def _fuzzy_tag_score(solver_tags: set[str], ticket_tags: set[str]) -> float:
 
 
 def find_best_solver(tags: list[str], solvers: list[dict]) -> dict | None:
-    """Find the best solver for a ticket based on skill overlap and workload.
+    """Find the best-matched solver for a ticket.
 
-    Uses fuzzy tag matching (exact + substring) and falls back to the least
-    busy solver if no match is found.
+    Returns the highest-scoring solver (score > 0) by skill overlap, with
+    workload as a tiebreaker. Returns ``None`` when no solver has a
+    positive tag-match score — this lets the caller escalate the ticket
+    to the CEO rather than blindly dumping a ``["blockchain"]`` ticket on
+    the least-busy Python specialist. A "least-busy fallback" at this
+    layer was a silent correctness bug: the escalation path in
+    ``_assign_to_solver`` only fired on an empty solver pool, which
+    almost never happens in practice.
     """
     if not solvers:
         return None
@@ -72,7 +78,7 @@ def find_best_solver(tags: list[str], solvers: list[dict]) -> dict | None:
         solver_tags = {s.lower() for s in solver["skills"]}
         score = _fuzzy_tag_score(solver_tags, ticket_tags)
         logger.debug(
-            "Solver scoring: %s score=%.1f workload=%d (skills=%s vs tags=%s)",
+            "Solver scoring: %s score=%.2f workload=%d (skills=%s vs tags=%s)",
             solver["id"],
             score,
             solver["workload"],
@@ -82,23 +88,22 @@ def find_best_solver(tags: list[str], solvers: list[dict]) -> dict | None:
         if score > 0:
             candidates.append((score, solver["workload"], solver))
 
-    if candidates:
-        # Sort by score (desc), workload (asc), random tiebreaker
-        # Without the random factor, the same solver always wins when tied
-        candidates.sort(key=lambda x: (-x[0], x[1], random.random()))
-        best = candidates[0]
-        logger.info(
-            "Best solver: %s (score=%.1f, workload=%d, %d candidates)",
-            best[2]["id"],
-            best[0],
-            best[1],
-            len(candidates),
-        )
-        return candidates[0][2]
+    if not candidates:
+        logger.info("No tag match for %s — caller should escalate", tags)
+        return None
 
-    # Fallback: assign to a random least-busy solver
-    logger.info("No tag match for %s, falling back to least busy solver", tags)
-    return min(solvers, key=lambda s: (s["workload"], random.random()))
+    # Sort by score (desc), workload (asc), random tiebreaker. Without
+    # the random factor, the same solver always wins when tied.
+    candidates.sort(key=lambda x: (-x[0], x[1], random.random()))
+    best = candidates[0]
+    logger.info(
+        "Best solver: %s (score=%.2f, workload=%d, %d candidates)",
+        best[2]["id"],
+        best[0],
+        best[1],
+        len(candidates),
+    )
+    return best[2]
 
 
 async def _create_ticket(

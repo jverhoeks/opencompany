@@ -1547,7 +1547,7 @@ async def test_engine_budget_blocks_over_budget_persona(db_engine):
 
 
 async def test_heartbeat_triggers_idle_personas(db_engine):
-    """Heartbeat job spawns tasks for idle personas with budget."""
+    """Heartbeat job spawns tasks for idle personas with budget when work exists."""
     factory = async_sessionmaker(db_engine, expire_on_commit=False)
 
     async with factory() as session:
@@ -1562,6 +1562,9 @@ async def test_heartbeat_triggers_idle_personas(db_engine):
                 daily_token_budget=100000,
             )
         )
+        # Heartbeat now gates on "is there work worth checking in on?" —
+        # we seed at least one open ticket so the gate opens.
+        session.add(Ticket(title="Work to do", tags=["x"], status="open"))
         await session.commit()
 
     with (
@@ -1577,6 +1580,42 @@ async def test_heartbeat_triggers_idle_personas(db_engine):
     call_args = mock_spawn.call_args
     assert call_args[0][0].id == "idle-dev"
     assert "heartbeat-idle-dev" in call_args[0][2]
+
+
+async def test_heartbeat_skips_when_no_work(db_engine):
+    """Heartbeat skips entirely when there are no open or stuck tickets.
+
+    Regression guard for the token-burn issue: an empty board with 12
+    idle personas at a 60-second heartbeat used to emit 17k no-op
+    prompts per day. The gate prevents that.
+    """
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async with factory() as session:
+        session.add(
+            Persona(
+                id="idle-only",
+                name="Idle Only",
+                role="Dev",
+                type="solver",
+                backstory="x",
+                activity_state="idle",
+                daily_token_budget=100000,
+            )
+        )
+        # NO open or in_progress tickets → heartbeat should no-op.
+        await session.commit()
+
+    with (
+        patch("opencompany.models.engine.async_session", factory),
+        patch("opencompany.company.budget.async_session", factory),
+        patch("opencompany.company.engine._spawn_persona_task") as mock_spawn,
+    ):
+        from opencompany.company.scheduler import _persona_heartbeat_job
+
+        await _persona_heartbeat_job()
+
+    mock_spawn.assert_not_called()
 
 
 async def test_heartbeat_skips_busy_personas(db_engine):
