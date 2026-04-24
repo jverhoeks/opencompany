@@ -218,6 +218,116 @@ async def test_ceo_kickoff_no_ceo(db_engine):
 
 
 # ---------------------------------------------------------------------------
+# _unblock_personas_job
+# ---------------------------------------------------------------------------
+
+
+async def test_unblock_personas_job_recovers_blocked(db_engine):
+    """Blocked personas whose budget is available get flipped to idle."""
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    yesterday = datetime.now(UTC) - timedelta(days=1)
+
+    async with factory() as session:
+        session.add(
+            Persona(
+                id="stuck-dev",
+                name="Stuck Dev",
+                role="Dev",
+                type="solver",
+                backstory="Blocked at end of day.",
+                status="active",
+                activity_state="blocked",
+                daily_token_budget=1000,
+                tokens_used_today=1000,
+                budget_reset_at=yesterday,
+            )
+        )
+        await session.commit()
+
+    published = []
+
+    async def fake_publish(event_type, data):
+        published.append((event_type, data))
+
+    with (
+        patch("opencompany.models.engine.async_session", factory),
+        patch("opencompany.company.budget.async_session", factory),
+        # ``publish`` is imported inside the job body, so we patch the source.
+        patch("opencompany.events.bus.publish", fake_publish),
+    ):
+        from opencompany.company.scheduler import _unblock_personas_job
+
+        await _unblock_personas_job()
+
+    async with factory() as session:
+        persona = await session.get(Persona, "stuck-dev")
+        assert persona is not None
+        assert persona.activity_state == "idle"
+
+    # Publishes persona.idle so the engine picks them back up.
+    assert any(
+        event_type == "persona.idle" and data.get("persona_id") == "stuck-dev"
+        for event_type, data in published
+    )
+
+
+async def test_unblock_personas_job_leaves_still_over_budget(db_engine):
+    """A blocked persona whose budget is still exhausted stays blocked."""
+    from datetime import UTC, datetime
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async with factory() as session:
+        session.add(
+            Persona(
+                id="still-stuck",
+                name="Still Stuck",
+                role="Dev",
+                type="solver",
+                backstory="Over budget today.",
+                status="active",
+                activity_state="blocked",
+                daily_token_budget=100,
+                tokens_used_today=100,
+                budget_reset_at=datetime.now(UTC),
+            )
+        )
+        await session.commit()
+
+    with (
+        patch("opencompany.models.engine.async_session", factory),
+        patch("opencompany.company.budget.async_session", factory),
+        patch("opencompany.events.bus.publish", new_callable=AsyncMock),
+    ):
+        from opencompany.company.scheduler import _unblock_personas_job
+
+        await _unblock_personas_job()
+
+    async with factory() as session:
+        persona = await session.get(Persona, "still-stuck")
+        assert persona is not None
+        assert persona.activity_state == "blocked"
+
+
+async def test_unblock_personas_job_handles_exception():
+    """_unblock_personas_job logs but does not raise on failure."""
+    with patch(
+        "opencompany.models.engine.async_session",
+        side_effect=RuntimeError("DB down"),
+    ):
+        from opencompany.company.scheduler import _unblock_personas_job
+
+        # Should not raise
+        await _unblock_personas_job()
+
+
+# ---------------------------------------------------------------------------
 # start_scheduler
 # ---------------------------------------------------------------------------
 

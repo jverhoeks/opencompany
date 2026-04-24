@@ -146,6 +146,94 @@ async def test_check_budget_partial_remaining(budget_session):
 
 
 # ---------------------------------------------------------------------------
+# check_budget auto-unblock
+# ---------------------------------------------------------------------------
+async def test_check_budget_unblocks_on_daily_reset(budget_session):
+    """A blocked persona is flipped to idle when their daily budget resets.
+
+    Regression guard: without this, personas blocked at end-of-day stay
+    stuck forever — the heartbeat and event-driven scheduler both filter
+    on ``activity_state=='idle'``, so nothing would ever spawn work for them
+    again even after ``tokens_used_today`` was reset.
+    """
+    yesterday = datetime.now(UTC) - timedelta(days=1)
+    async with budget_session() as session:
+        session.add(
+            Persona(
+                id="stuck",
+                name="Stuck",
+                role="Dev",
+                type="solver",
+                backstory="Hit budget yesterday.",
+                daily_token_budget=1000,
+                tokens_used_today=1000,
+                budget_reset_at=yesterday,
+                activity_state="blocked",
+            )
+        )
+        await session.commit()
+
+    ok, remaining = await check_budget("stuck")
+    assert ok is True
+    assert remaining == 1000
+
+    async with budget_session() as session:
+        persona = await session.get(Persona, "stuck")
+        assert persona.activity_state == "idle"
+
+
+async def test_check_budget_unblocks_unlimited_budget(budget_session):
+    """Unlimited-budget personas stuck in 'blocked' also recover on check."""
+    async with budget_session() as session:
+        session.add(
+            Persona(
+                id="unlimited-blocked",
+                name="Unlimited Blocked",
+                role="Dev",
+                type="solver",
+                backstory="Blocked for a task_error with unlimited budget.",
+                daily_token_budget=0,
+                activity_state="blocked",
+            )
+        )
+        await session.commit()
+
+    ok, _ = await check_budget("unlimited-blocked")
+    assert ok is True
+
+    async with budget_session() as session:
+        persona = await session.get(Persona, "unlimited-blocked")
+        assert persona.activity_state == "idle"
+
+
+async def test_check_budget_keeps_blocked_when_still_over(budget_session):
+    """Blocked persona stays blocked if still over budget (no reset happened)."""
+    now = datetime.now(UTC)
+    async with budget_session() as session:
+        session.add(
+            Persona(
+                id="still-over",
+                name="Still Over",
+                role="Dev",
+                type="solver",
+                backstory="Used up today's budget.",
+                daily_token_budget=100,
+                tokens_used_today=100,
+                budget_reset_at=now,
+                activity_state="blocked",
+            )
+        )
+        await session.commit()
+
+    ok, _ = await check_budget("still-over")
+    assert ok is False
+
+    async with budget_session() as session:
+        persona = await session.get(Persona, "still-over")
+        assert persona.activity_state == "blocked"  # no change
+
+
+# ---------------------------------------------------------------------------
 # consume_tokens
 # ---------------------------------------------------------------------------
 async def test_consume_tokens_zero_total(budget_session):
