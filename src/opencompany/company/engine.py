@@ -103,7 +103,10 @@ async def _on_persona_idle(persona_id: str) -> None:
             f"solve-ticket-{claimed['id']}",
             ticket_id=claimed["id"],
         )
-    elif persona_id == "hr":
+    elif (persona.role or "").lower() == "hr":
+        # Any active persona with role='hr' handles HR pickup — previously
+        # this was hardcoded to ``persona_id == 'hr'`` which broke if the
+        # HR persona was renamed, or if multiple HR personas existed.
         await _hr_pickup()
 
 
@@ -137,10 +140,17 @@ async def _route_ticket(ticket_id: int):
         creator_id = ticket.created_by
         creator = await session.get(Persona, creator_id) if creator_id else None
 
-        # HR-tagged tickets always go to HR
+        # HR-tagged tickets always go to HR. Look up the active HR persona
+        # by role rather than assuming a persona literally named ``"hr"``.
         if "hr" in ticket.tags or "hiring" in ticket.tags:
-            logger.info("Ticket #%d has HR tag, routing directly to HR", ticket_id)
-            target_id = "hr"
+            target_id = await _find_hr_persona_id(session)
+            if target_id:
+                logger.info("Ticket #%d has HR tag, routing to %s", ticket_id, target_id)
+            else:
+                logger.warning(
+                    "Ticket #%d has HR tag but no active HR persona — falling back",
+                    ticket_id,
+                )
         else:
             target_type = _get_routing_target(creator, config, routing)
             logger.info(
@@ -179,11 +189,14 @@ async def _route_ticket(ticket_id: int):
             await _assign_to_solver(ticket, session)
             return
 
-        ticket.assigned_to = target_id
-        ticket.status = "assigned"
-        log = WorkLog(persona_id=target_id, action="picked_up", ticket_id=ticket_id)
-        session.add(log)
-        await session.commit()
+        won = await _try_claim_ticket(session, ticket_id, target_id)
+        if not won:
+            logger.info(
+                "Ticket #%d already claimed by another router — skipping %s",
+                ticket_id,
+                target_id,
+            )
+            return
         logger.info(
             "Routed ticket #%d to %s (%s)",
             ticket_id,
@@ -278,6 +291,41 @@ def _find_lead_for_tags(tags: list[str], config) -> str | None:
     return best_match
 
 
+async def _try_claim_ticket(
+    session,
+    ticket_id: int,
+    target_persona_id: str,
+    action: str = "picked_up",
+) -> bool:
+    """Atomically flip a ticket from open → assigned for a specific persona.
+
+    Uses a conditional UPDATE (``WHERE status='open' AND assigned_to IS NULL``)
+    so two routers racing on the same ticket can't both think they've
+    assigned it — ``rowcount`` tells us which call won. Critical once the
+    deployment scales beyond a single instance, where the event loop no
+    longer serialises ``handle_event`` across consumers. On a single-instance
+    deployment this is a no-op cost (few microseconds) but cheap insurance.
+    Returns True on win, False if another caller got there first.
+    """
+    from sqlalchemy import update
+
+    stmt = (
+        update(Ticket)
+        .where(
+            Ticket.id == ticket_id,
+            Ticket.status == "open",
+            Ticket.assigned_to.is_(None),
+        )
+        .values(status="assigned", assigned_to=target_persona_id)
+    )
+    result = await session.execute(stmt)
+    if result.rowcount != 1:
+        return False
+    session.add(WorkLog(persona_id=target_persona_id, action=action, ticket_id=ticket_id))
+    await session.commit()
+    return True
+
+
 async def _assign_to_solver(ticket: Ticket, session) -> None:
     """Assign a ticket to the best available solver."""
     solvers = await _get_solvers_with_workload()
@@ -300,11 +348,13 @@ async def _assign_to_solver(ticket: Ticket, session) -> None:
         await _escalate_to_ceo(ticket, session)
         return
 
-    ticket.assigned_to = best["id"]
-    ticket.status = "assigned"
-    log = WorkLog(persona_id=best["id"], action="picked_up", ticket_id=ticket.id)
-    session.add(log)
-    await session.commit()
+    won = await _try_claim_ticket(session, ticket.id, best["id"])
+    if not won:
+        logger.info(
+            "Ticket #%d already claimed by another router — skipping solver assign",
+            ticket.id,
+        )
+        return
     logger.info("Assigned ticket #%d to solver %s", ticket.id, best["id"])
 
     persona = await session.get(Persona, best["id"])
@@ -387,7 +437,12 @@ async def _get_solvers_with_workload() -> list[dict]:
 
 
 async def _trigger_review(ticket_id: int):
-    """Trigger reviewer for a completed ticket."""
+    """Trigger reviewer for a completed ticket.
+
+    Prefers the ticket's creator. Falls back to any active manager,
+    **excluding the worker who submitted the ticket for review** — letting
+    a persona review their own work silently nullifies the review step.
+    """
     logger.info("Triggering review for ticket #%d", ticket_id)
     async with async_session() as session:
         ticket = await session.get(Ticket, ticket_id)
@@ -395,13 +450,21 @@ async def _trigger_review(ticket_id: int):
             logger.warning("Ticket #%d not found for review", ticket_id)
             return
 
-        reviewer = await session.get(Persona, ticket.created_by)
+        reviewer = None
+        if ticket.created_by and ticket.created_by != ticket.assigned_to:
+            reviewer = await session.get(Persona, ticket.created_by)
+
         if not reviewer:
             logger.info(
-                "Creator %s not found, falling back to manager",
+                "Creator %s unavailable (or same as worker), falling back to a manager",
                 ticket.created_by,
             )
-            q = select(Persona).where(Persona.type == "manager", Persona.status == "active")
+            q = select(Persona).where(
+                Persona.type == "manager",
+                Persona.status == "active",
+                # Never route the review back to the worker.
+                Persona.id != ticket.assigned_to,
+            )
             result = await session.execute(q)
             reviewer = result.scalars().first()
 
@@ -444,6 +507,14 @@ def _spawn_persona_task(persona: Persona, task: str, label: str, ticket_id: int 
                 persona.id,
                 label,
             )
+            # Immediate recovery: if a ticket was already flipped to
+            # ``assigned`` but we can't actually start work, unset the
+            # assignment and republish so another persona can grab it
+            # right now. Without this the ticket would sit ``assigned``
+            # until stale-reclaim catches it (~10 minutes) — a dead zone
+            # that stacks up under sustained contention.
+            if ticket_id is not None:
+                await _release_ticket_for_retry(ticket_id, persona.id, reason="lock_held")
             return
 
         try:
@@ -514,6 +585,50 @@ def _spawn_persona_task(persona: Persona, task: str, label: str, ticket_id: int 
     logger.info("Spawned background task: %s", label)
 
 
+async def _release_ticket_for_retry(ticket_id: int, persona_id: str, reason: str) -> None:
+    """Put a ticket back to the open pool and republish so another persona retries.
+
+    Only flips the ticket if it is still ``assigned`` to the caller —
+    conditional UPDATE, so a later race that already moved the ticket
+    forward (e.g. the ``in_progress`` flip) is not clobbered.
+    """
+    async with async_session() as session:
+        from sqlalchemy import update
+
+        stmt = (
+            update(Ticket)
+            .where(
+                Ticket.id == ticket_id,
+                Ticket.status == "assigned",
+                Ticket.assigned_to == persona_id,
+            )
+            .values(status="open", assigned_to=None)
+        )
+        result = await session.execute(stmt)
+        if result.rowcount != 1:
+            # Ticket is no longer in ``assigned`` for this persona — it
+            # either already started, was reclaimed, or doesn't exist.
+            # Nothing to do.
+            return
+        session.add(
+            WorkLog(
+                persona_id=persona_id,
+                action="released",
+                ticket_id=ticket_id,
+                details=reason,
+            )
+        )
+        await session.commit()
+    try:
+        await publish("ticket.created", {"ticket_id": ticket_id})
+    except Exception:
+        logger.exception(
+            "Failed to republish ticket #%d after release (reason=%s) — sweep will catch it",
+            ticket_id,
+            reason,
+        )
+
+
 async def _set_ticket_in_progress(ticket_id: int, persona_id: str) -> None:
     """Mark a ticket as in_progress when a solver starts working on it."""
     async with async_session() as session:
@@ -545,12 +660,22 @@ async def _add_ticket_tokens(ticket_id: int, tokens_in: int, tokens_out: int) ->
 
 
 _MIN_USEFUL_TOKENS = 200
+# Upper bound on how many times a ticket may be requeued for budget_exhausted
+# before we park it as ``needs_attention``. Without this guard, a ticket
+# whose remaining budget is just below ``_MIN_USEFUL_TOKENS`` enters a
+# livelock: requeue → route → budget check fails (no tokens consumed, so
+# ``used`` never grows) → requeue → … forever, spamming WorkLog and DB.
+_MAX_BUDGET_REQUEUES = 3
 
 
 async def _check_task_budget(ticket_id: int, persona_id: str) -> bool:
     """Check if a ticket has enough per-task budget remaining for meaningful work.
 
-    Returns True if work should proceed, False if ticket was requeued.
+    Returns True if work should proceed, False if the ticket was requeued
+    or parked. A ticket that would otherwise loop indefinitely (remaining
+    budget < ``_MIN_USEFUL_TOKENS`` but no tokens actually consumed
+    between requeues) gets parked at ``status='needs_attention'`` once
+    it has been requeued ``_MAX_BUDGET_REQUEUES`` times.
     """
     async with async_session() as session:
         ticket = await session.get(Ticket, ticket_id)
@@ -558,26 +683,63 @@ async def _check_task_budget(ticket_id: int, persona_id: str) -> bool:
             return True  # 0 = unlimited
         used = (ticket.tokens_in or 0) + (ticket.tokens_out or 0)
         remaining = ticket.budget_tokens - used
-        if remaining < _MIN_USEFUL_TOKENS:
-            logger.warning(
-                "Ticket #%d budget exhausted (%d/%d used), requeuing",
+        if remaining >= _MIN_USEFUL_TOKENS:
+            return True
+
+        # Count prior budget_exhausted requeues on this ticket. ``WorkLog``
+        # is our audit trail, so no schema change needed — the requeue
+        # entries we emit below are the source of truth.
+        prior_requeues = (
+            await session.execute(
+                select(func.count(WorkLog.id)).where(
+                    WorkLog.ticket_id == ticket_id,
+                    WorkLog.action == "requeued",
+                    WorkLog.details == "budget_exhausted",
+                )
+            )
+        ).scalar() or 0
+
+        if prior_requeues >= _MAX_BUDGET_REQUEUES:
+            logger.error(
+                "Ticket #%d stuck in requeue loop (%d prior requeues, %d/%d used) — parking",
                 ticket_id,
+                prior_requeues,
                 used,
                 ticket.budget_tokens,
             )
-            ticket.status = "open"
+            ticket.status = "needs_attention"
             ticket.assigned_to = None
-            log = WorkLog(
+            session.add(
+                WorkLog(
+                    persona_id=persona_id,
+                    action="parked",
+                    ticket_id=ticket_id,
+                    details=f"requeue_loop (n={prior_requeues})",
+                )
+            )
+            await session.commit()
+            return False
+
+        logger.warning(
+            "Ticket #%d budget exhausted (%d/%d used), requeuing (attempt %d)",
+            ticket_id,
+            used,
+            ticket.budget_tokens,
+            prior_requeues + 1,
+        )
+        ticket.status = "open"
+        ticket.assigned_to = None
+        session.add(
+            WorkLog(
                 persona_id=persona_id,
                 action="requeued",
                 ticket_id=ticket_id,
                 details="budget_exhausted",
             )
-            session.add(log)
-            await session.commit()
-            await publish("ticket.created", {"ticket_id": ticket_id})
-            return False
-    return True
+        )
+        await session.commit()
+        await publish("ticket.created", {"ticket_id": ticket_id})
+        return False
 
 
 async def _check_task_budget_post_run(ticket_id: int) -> None:
@@ -597,6 +759,24 @@ async def _check_task_budget_post_run(ticket_id: int) -> None:
 
 
 _HR_TAGS = {"hr", "hiring", "firing", "headcount", "personnel", "recruit"}
+
+
+async def _find_hr_persona_id(session) -> str | None:
+    """Return the id of an active HR persona (by role='hr'), or None.
+
+    Queries by role rather than by a hardcoded persona ID so the feature
+    survives renaming the builtin ``hr`` persona or creating additional
+    HR personas. If multiple match, the first one is returned — for now
+    we don't distribute HR work across multiple HR personas.
+    """
+    result = await session.execute(
+        select(Persona).where(
+            func.lower(Persona.role) == "hr",
+            Persona.status == "active",
+        )
+    )
+    hr = result.scalars().first()
+    return hr.id if hr else None
 
 
 async def _hr_pickup() -> None:

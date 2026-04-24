@@ -279,6 +279,255 @@ async def test_trigger_review_ticket_not_found(db_engine):
         await _trigger_review(99999)
 
 
+async def test_trigger_review_excludes_worker_from_fallback(db_engine):
+    """If the only manager IS the worker, review falls through to nobody.
+
+    Regression guard: routing a review back to the worker who submitted
+    the ticket silently nullifies the review step. The manager fallback
+    must exclude ``ticket.assigned_to``.
+    """
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async with factory() as session:
+        # Only manager on the team is also the worker — should NOT be
+        # chosen as reviewer.
+        session.add(
+            Persona(
+                id="worker-mgr",
+                name="Working Manager",
+                role="Lead",
+                type="manager",
+                backstory="Submitted this ticket and shouldn't review it.",
+            )
+        )
+        ticket = Ticket(
+            title="Submitted for review",
+            priority="high",
+            status="review",
+            tags=["x"],
+            result="Done",
+            assigned_to="worker-mgr",
+            created_by="ghost",  # creator unavailable → fallback path
+        )
+        session.add(ticket)
+        await session.commit()
+        await session.refresh(ticket)
+        ticket_id = ticket.id
+
+    with (
+        patch("opencompany.company.engine.async_session", factory),
+        patch("opencompany.company.engine._spawn_persona_task") as mock_spawn,
+    ):
+        from opencompany.company.engine import _trigger_review
+
+        await _trigger_review(ticket_id)
+
+    # No reviewer was spawned because the only manager == the worker.
+    mock_spawn.assert_not_called()
+
+
+async def test_trigger_review_prefers_non_worker_creator(db_engine):
+    """Creator gets the review unless creator == worker."""
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async with factory() as session:
+        session.add(
+            Persona(
+                id="creator-mgr",
+                name="Creator",
+                role="PM",
+                type="manager",
+                backstory="x",
+            )
+        )
+        session.add(
+            Persona(
+                id="worker",
+                name="Worker",
+                role="Dev",
+                type="solver",
+                backstory="x",
+            )
+        )
+        ticket = Ticket(
+            title="Review me",
+            status="review",
+            tags=["x"],
+            result="Done",
+            assigned_to="worker",
+            created_by="creator-mgr",
+        )
+        session.add(ticket)
+        await session.commit()
+        await session.refresh(ticket)
+        ticket_id = ticket.id
+
+    with (
+        patch("opencompany.company.engine.async_session", factory),
+        patch("opencompany.company.engine._spawn_persona_task") as mock_spawn,
+    ):
+        from opencompany.company.engine import _trigger_review
+
+        await _trigger_review(ticket_id)
+
+    mock_spawn.assert_called_once()
+    assert mock_spawn.call_args[0][0].id == "creator-mgr"
+
+
+# ---------------------------------------------------------------------------
+# _release_ticket_for_retry — immediate recovery when a spawn is dropped
+# ---------------------------------------------------------------------------
+async def test_release_ticket_for_retry_flips_open(db_engine):
+    """Release a stuck ``assigned`` ticket back to the open pool and republish."""
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async with factory() as session:
+        ticket = Ticket(
+            title="Stuck",
+            status="assigned",
+            assigned_to="busy-dev",
+            tags=["x"],
+        )
+        session.add(ticket)
+        await session.commit()
+        await session.refresh(ticket)
+        tid = ticket.id
+
+    published = []
+
+    async def fake_publish(event_type, data):
+        published.append((event_type, data))
+
+    with (
+        patch("opencompany.company.engine.async_session", factory),
+        patch("opencompany.company.engine.publish", fake_publish),
+    ):
+        from opencompany.company.engine import _release_ticket_for_retry
+
+        await _release_ticket_for_retry(tid, "busy-dev", "lock_held")
+
+    async with factory() as session:
+        ticket = await session.get(Ticket, tid)
+        assert ticket is not None
+        assert ticket.status == "open"
+        assert ticket.assigned_to is None
+
+    assert ("ticket.created", {"ticket_id": tid}) in published
+
+
+async def test_release_ticket_noop_when_already_started(db_engine):
+    """Conditional UPDATE refuses to rewind a ticket that's already in_progress."""
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async with factory() as session:
+        ticket = Ticket(
+            title="In flight",
+            status="in_progress",  # not 'assigned' — release should no-op
+            assigned_to="busy-dev",
+            tags=["x"],
+        )
+        session.add(ticket)
+        await session.commit()
+        await session.refresh(ticket)
+        tid = ticket.id
+
+    with (
+        patch("opencompany.company.engine.async_session", factory),
+        patch("opencompany.company.engine.publish", new_callable=AsyncMock) as mock_publish,
+    ):
+        from opencompany.company.engine import _release_ticket_for_retry
+
+        await _release_ticket_for_retry(tid, "busy-dev", "lock_held")
+
+    async with factory() as session:
+        ticket = await session.get(Ticket, tid)
+        assert ticket is not None
+        assert ticket.status == "in_progress"  # untouched
+        assert ticket.assigned_to == "busy-dev"
+
+    # No republish because no actual release happened.
+    mock_publish.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# _try_claim_ticket — optimistic locking for routing
+# ---------------------------------------------------------------------------
+async def test_try_claim_ticket_wins_first(db_engine):
+    """First claimer wins; second sees rowcount=0 and returns False."""
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async with factory() as session:
+        ticket = Ticket(title="Compete", status="open", tags=["x"])
+        session.add(ticket)
+        await session.commit()
+        await session.refresh(ticket)
+        tid = ticket.id
+
+    from opencompany.company.engine import _try_claim_ticket
+
+    async with factory() as session:
+        won = await _try_claim_ticket(session, tid, "dev-a")
+    assert won is True
+
+    # Second attempt: ticket is no longer status='open', should refuse.
+    async with factory() as session:
+        won2 = await _try_claim_ticket(session, tid, "dev-b")
+    assert won2 is False
+
+    async with factory() as session:
+        ticket = await session.get(Ticket, tid)
+        assert ticket is not None
+        assert ticket.assigned_to == "dev-a"
+
+
+# ---------------------------------------------------------------------------
+# _find_hr_persona_id — role-based lookup
+# ---------------------------------------------------------------------------
+async def test_find_hr_persona_id_by_role(db_engine):
+    """Matches by role='hr', not persona ID."""
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async with factory() as session:
+        # Renamed HR persona — role is still 'hr' but id is 'maria'.
+        session.add(
+            Persona(
+                id="maria",
+                name="Maria",
+                role="hr",
+                type="manager",
+                backstory="x",
+            )
+        )
+        await session.commit()
+
+        from opencompany.company.engine import _find_hr_persona_id
+
+        hr_id = await _find_hr_persona_id(session)
+    assert hr_id == "maria"
+
+
+async def test_find_hr_persona_id_none_when_missing(db_engine):
+    """Returns None when no active HR persona exists."""
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async with factory() as session:
+        session.add(
+            Persona(
+                id="dev",
+                name="Dev",
+                role="Dev",
+                type="solver",
+                backstory="x",
+            )
+        )
+        await session.commit()
+
+        from opencompany.company.engine import _find_hr_persona_id
+
+        hr_id = await _find_hr_persona_id(session)
+    assert hr_id is None
+
+
 # ---------------------------------------------------------------------------
 # _spawn_persona_task — full lifecycle
 # ---------------------------------------------------------------------------

@@ -27,13 +27,20 @@ def test_find_best_solver_prefers_lower_workload():
     assert best["id"] == "dev-2"
 
 
-def test_find_best_solver_no_match_falls_back_to_least_busy():
+def test_find_best_solver_no_match_returns_none():
+    """With zero tag matches we return None so the caller can escalate.
+
+    Previously we fell back to ``min(solvers, key=workload)`` here, which
+    silently dumped ``["blockchain"]`` tickets on the least-busy Python
+    dev. The escalation path in ``_assign_to_solver`` is the right place
+    for unmatched tags — this just unblocks it.
+    """
     solvers = [
         {"id": "dev-1", "skills": ["python"], "workload": 3},
         {"id": "dev-2", "skills": ["java"], "workload": 1},
     ]
     best = find_best_solver(tags=["rust"], solvers=solvers)
-    assert best["id"] == "dev-2"  # least busy gets it
+    assert best is None
 
 
 def test_find_best_solver_empty_solvers():

@@ -257,22 +257,38 @@ async def _fire_persona(persona_id: str, reason: str = "") -> str:
                 Ticket.status.in_(("open", "assigned", "in_progress")),
             )
         )
-        orphan_count = 0
+        orphan_ids: list[int] = []
         for ticket in orphaned.scalars().all():
             ticket.status = "open"
             ticket.assigned_to = None
-            orphan_count += 1
+            orphan_ids.append(ticket.id)
 
         await session.commit()
 
-        if orphan_count:
-            logger.info(
-                "Reassigned %d orphaned tickets from fired persona %s",
-                orphan_count,
+    # Publish AFTER commit + outside the session so the engine re-routes
+    # each orphan immediately rather than waiting for the next 30-second
+    # sweep. Importing locally keeps ``personas`` free of ``engine`` and
+    # ``events`` at import time (avoids circular imports).
+    from opencompany.events.bus import publish
+
+    for ticket_id in orphan_ids:
+        try:
+            await publish("ticket.created", {"ticket_id": ticket_id})
+        except Exception:
+            logger.exception(
+                "Failed to republish ticket #%d after firing %s — sweep will catch it",
+                ticket_id,
                 persona_id,
             )
-        logger.info("Fired persona %s (%s). Reason: %s", persona_id, persona.name, reason)
-        return f"Fired {persona.name} ({persona_id}). Reason: {reason}"
+
+    if orphan_ids:
+        logger.info(
+            "Reassigned %d orphaned tickets from fired persona %s",
+            len(orphan_ids),
+            persona_id,
+        )
+    logger.info("Fired persona %s (%s). Reason: %s", persona_id, persona.name, reason)
+    return f"Fired {persona.name} ({persona_id}). Reason: {reason}"
 
 
 def fire_persona_sync(**kwargs) -> str:
