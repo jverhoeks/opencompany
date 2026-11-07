@@ -1,45 +1,45 @@
 # Test Report
 
-**Date:** 2026-04-24 16:57  
+**Date:** 2026-11-07 11:30  
 
 
 ## Summary
 
 | Metric | Count |
 |--------|-------|
-| Total  | 471 |
-| Passed | 469 |
-| Failed | 0 |
-| Errors | 0 |
+| Total  | 511 |
+| Passed | 240 |
+| Failed | 9 |
+| Errors | 260 |
 | Skipped | 2 |
-| **Coverage** | **0%** |
+| **Coverage** | **48%** |
 
 ## Test Results
 
-### test_budget_cov.py (20/20 passed) ok
+### test_budget_cov.py (0/20 passed) FAIL
 
 | Test | Status |
 |------|--------|
-| `test_check_budget_nonexistent` | pass |
-| `test_check_budget_unlimited` | pass |
-| `test_check_budget_auto_reset_on_new_day` | pass |
-| `test_check_budget_no_reset_at` | pass |
-| `test_check_budget_exhausted` | pass |
-| `test_check_budget_partial_remaining` | pass |
-| `test_check_budget_unblocks_on_daily_reset` | pass |
-| `test_check_budget_unblocks_unlimited_budget` | pass |
-| `test_check_budget_keeps_blocked_when_still_over` | pass |
-| `test_consume_tokens_zero_total` | pass |
-| `test_consume_tokens_nonexistent` | pass |
-| `test_consume_tokens_accumulates` | pass |
-| `test_consume_tokens_sets_budget_reset_at` | pass |
-| `test_reset_budget_found` | pass |
-| `test_reset_budget_not_found` | pass |
-| `test_reset_all_budgets` | pass |
-| `test_get_budget_status_found` | pass |
-| `test_get_budget_status_not_found` | pass |
-| `test_get_budget_status_unlimited` | pass |
-| `test_get_all_budget_statuses` | pass |
+| `test_check_budget_nonexistent` | ERROR |
+| `test_check_budget_unlimited` | ERROR |
+| `test_check_budget_auto_reset_on_new_day` | ERROR |
+| `test_check_budget_no_reset_at` | ERROR |
+| `test_check_budget_exhausted` | ERROR |
+| `test_check_budget_partial_remaining` | ERROR |
+| `test_check_budget_unblocks_on_daily_reset` | ERROR |
+| `test_check_budget_unblocks_unlimited_budget` | ERROR |
+| `test_check_budget_keeps_blocked_when_still_over` | ERROR |
+| `test_consume_tokens_zero_total` | ERROR |
+| `test_consume_tokens_nonexistent` | ERROR |
+| `test_consume_tokens_accumulates` | ERROR |
+| `test_consume_tokens_sets_budget_reset_at` | ERROR |
+| `test_reset_budget_found` | ERROR |
+| `test_reset_budget_not_found` | ERROR |
+| `test_reset_all_budgets` | ERROR |
+| `test_get_budget_status_found` | ERROR |
+| `test_get_budget_status_not_found` | ERROR |
+| `test_get_budget_status_unlimited` | ERROR |
+| `test_get_all_budget_statuses` | ERROR |
 
 ### test_bus.py (2/2 passed) ok
 
@@ -81,7 +81,7 @@
 | `test_hire_persona_tool_with_tools_and_picks_up` | pass |
 | `test_list_team_with_reports_to` | pass |
 
-### test_config.py (9/9 passed) ok
+### test_config.py (7/9 passed) FAIL
 
 | Test | Status |
 |------|--------|
@@ -91,137 +91,147 @@
 | `test_get_org_routing` | pass |
 | `test_load_config_missing_file` | pass |
 | `test_config_caching` | pass |
-| `test_add_role` | pass |
-| `test_add_role_duplicate` | pass |
 | `test_load_real_company_yaml` | pass |
+| `test_add_role` | FAIL |
+| `test_add_role_duplicate` | FAIL |
 
-### test_config_roles.py (4/4 passed) ok
-
-| Test | Status |
-|------|--------|
-| `test_update_role` | pass |
-| `test_update_role_not_found` | pass |
-| `test_delete_role` | pass |
-| `test_delete_role_not_found` | pass |
-
-### test_dashboard.py (3/3 passed) ok
+### test_config_roles.py (0/4 passed) FAIL
 
 | Test | Status |
 |------|--------|
-| `test_overview_empty` | pass |
-| `test_overview_with_personas_and_tickets` | pass |
-| `test_overview_work_log` | pass |
+| `test_update_role` | FAIL |
+| `test_update_role_not_found` | FAIL |
+| `test_delete_role` | FAIL |
+| `test_delete_role_not_found` | FAIL |
 
-### test_dashboard_cov.py (13/14 passed) ok
+### test_dashboard.py (0/3 passed) FAIL
 
 | Test | Status |
 |------|--------|
-| `test_serve_dashboard_returns_html` | pass |
-| `test_workspace_file_not_found` | pass |
-| `test_workspace_file_path_traversal` | pass |
-| `test_workspace_serves_existing_file` | pass |
-| `test_overseer_list_messages` | pass |
-| `test_overseer_reply_message_not_found` | pass |
-| `test_overseer_reply_success` | pass |
-| `test_overseer_reply_no_persona` | pass |
-| `test_overview_persona_fields` | pass |
+| `test_overview_empty` | ERROR |
+| `test_overview_with_personas_and_tickets` | ERROR |
+| `test_overview_work_log` | ERROR |
+
+### test_dashboard_cov.py (1/14 passed) FAIL
+
+| Test | Status |
+|------|--------|
 | `test_soul_update_endpoint` | pass |
-| `test_overview_includes_fired_personas` | pass |
-| `test_overview_includes_reports_to` | pass |
-| `test_patch_persona_config_name_and_role` | pass |
+| `test_serve_dashboard_returns_html` | ERROR |
+| `test_workspace_file_not_found` | ERROR |
+| `test_workspace_file_path_traversal` | ERROR |
+| `test_workspace_serves_existing_file` | ERROR |
+| `test_overseer_list_messages` | ERROR |
+| `test_overseer_reply_message_not_found` | ERROR |
+| `test_overseer_reply_success` | ERROR |
+| `test_overseer_reply_no_persona` | ERROR |
+| `test_overview_persona_fields` | ERROR |
+| `test_overview_includes_fired_personas` | ERROR |
+| `test_overview_includes_reports_to` | ERROR |
+| `test_patch_persona_config_name_and_role` | ERROR |
 | `test_dashboard_stream_returns_sse` | skip |
 
-### test_e2e.py (54/54 passed) ok
+### test_dashboard_e2e.py (0/31 passed) FAIL
 
 | Test | Status |
 |------|--------|
-| `test_health` | pass |
-| `test_list_personas_empty` | pass |
-| `test_list_personas_seeded` | pass |
-| `test_get_persona` | pass |
-| `test_get_persona_not_found` | pass |
-| `test_create_ticket` | pass |
-| `test_create_ticket_defaults` | pass |
-| `test_list_tickets_by_status` | pass |
-| `test_list_tickets_empty_status` | pass |
-| `test_create_ticket_with_context` | pass |
-| `test_chat_persona_not_found` | pass |
-| `test_chat_with_persona` | pass |
-| `test_chat_returns_agent_response` | pass |
-| `test_ticket_lifecycle` | pass |
-| `test_multiple_tickets_ordering` | pass |
-| `test_engine_auto_assign` | pass |
-| `test_engine_no_solver_available` | pass |
-| `test_seed_company` | pass |
-| `test_seed_company_skips_if_personas_exist` | pass |
-| `test_full_org_is_seeded` | pass |
-| `test_org_roles` | pass |
-| `test_backend_ticket_auto_assigned_to_jamie` | pass |
-| `test_frontend_ticket_auto_assigned_to_sam` | pass |
-| `test_marketing_ticket_auto_assigned` | pass |
-| `test_sales_ticket_auto_assigned` | pass |
-| `test_ceo_ticket_routes_to_pm` | pass |
-| `test_tech_lead_reviews_backlog_via_chat` | pass |
-| `test_full_sprint_lifecycle` | pass |
-| `test_workload_balancing_across_solvers` | pass |
-| `test_seed_real_company_yaml` | pass |
+| `test_dashboard_loads` | ERROR |
+| `test_default_tab_is_kanban` | ERROR |
+| `test_tab_switching` | ERROR |
+| `test_sidebar_shows_personas` | ERROR |
+| `test_kanban_columns_present` | ERROR |
+| `test_kanban_tickets_in_correct_columns` | ERROR |
+| `test_kanban_ticket_card_content` | ERROR |
+| `test_kanban_filter_by_persona` | ERROR |
+| `test_kanban_click_ticket_shows_detail` | ERROR |
+| `test_organigram_renders_svg` | ERROR |
+| `test_organigram_hierarchy` | ERROR |
+| `test_organigram_node_content` | ERROR |
+| `test_organigram_zoom` | ERROR |
+| `test_organigram_zoom_to_fit` | ERROR |
+| `test_organigram_click_node` | ERROR |
+| `test_office_renders_rooms` | ERROR |
+| `test_office_ceo_corner_office` | ERROR |
+| `test_office_hr_near_ceo` | ERROR |
+| `test_office_leads_in_mid_row` | ERROR |
+| `test_office_solvers_in_open_floor` | ERROR |
+| `test_office_shows_ticket_counts` | ERROR |
+| `test_office_fired_persona_dimmed` | ERROR |
+| `test_editor_subtabs` | ERROR |
+| `test_editor_persona_list` | ERROR |
+| `test_editor_persona_form` | ERROR |
+| `test_editor_persona_save` | ERROR |
+| `test_editor_roles_list` | ERROR |
+| `test_editor_role_form` | ERROR |
+| `test_editor_soul_markdown` | ERROR |
+| `test_editor_soul_version_history` | ERROR |
+| `test_editor_fired_persona_not_editable` | ERROR |
+
+### test_e2e.py (3/54 passed) FAIL
+
+| Test | Status |
+|------|--------|
 | `test_fuzzy_tag_matching_exact` | pass |
 | `test_fuzzy_tag_matching_substring` | pass |
 | `test_fuzzy_tag_matching_reverse_substring` | pass |
-| `test_engine_escalates_to_ceo` | pass |
-| `test_sweep_routes_orphaned_tickets` | pass |
-| `test_api_rejects_without_key` | pass |
-| `test_api_rejects_wrong_key` | pass |
-| `test_api_accepts_correct_key` | pass |
-| `test_dashboard_stream_requires_auth` | pass |
-| `test_dashboard_overview_requires_auth` | pass |
-| `test_overseer_messages_requires_auth` | pass |
-| `test_overseer_reply_requires_auth` | pass |
-| `test_budget_check_unlimited` | pass |
-| `test_budget_check_and_consume` | pass |
-| `test_budget_reset` | pass |
-| `test_budget_status` | pass |
-| `test_budget_api_list` | pass |
-| `test_budget_api_reset` | pass |
-| `test_seed_populates_model_id` | pass |
-| `test_engine_budget_blocks_over_budget_persona` | pass |
-| `test_heartbeat_triggers_idle_personas` | pass |
-| `test_heartbeat_skips_when_no_work` | pass |
-| `test_heartbeat_skips_busy_personas` | pass |
-| `test_heartbeat_skips_over_budget` | pass |
+| `test_health` | ERROR |
+| `test_list_personas_empty` | ERROR |
+| `test_list_personas_seeded` | ERROR |
+| `test_get_persona` | ERROR |
+| `test_get_persona_not_found` | ERROR |
+| `test_create_ticket` | ERROR |
+| `test_create_ticket_defaults` | ERROR |
+| `test_list_tickets_by_status` | ERROR |
+| `test_list_tickets_empty_status` | ERROR |
+| `test_create_ticket_with_context` | ERROR |
+| `test_chat_persona_not_found` | ERROR |
+| `test_chat_with_persona` | ERROR |
+| `test_chat_returns_agent_response` | ERROR |
+| `test_ticket_lifecycle` | ERROR |
+| `test_multiple_tickets_ordering` | ERROR |
+| `test_engine_auto_assign` | ERROR |
+| `test_engine_no_solver_available` | ERROR |
+| `test_seed_company` | ERROR |
+| `test_seed_company_skips_if_personas_exist` | ERROR |
+| `test_full_org_is_seeded` | ERROR |
+| `test_org_roles` | ERROR |
+| `test_backend_ticket_auto_assigned_to_jamie` | ERROR |
+| `test_frontend_ticket_auto_assigned_to_sam` | ERROR |
+| `test_marketing_ticket_auto_assigned` | ERROR |
+| `test_sales_ticket_auto_assigned` | ERROR |
+| `test_ceo_ticket_routes_to_pm` | ERROR |
+| `test_tech_lead_reviews_backlog_via_chat` | ERROR |
+| `test_full_sprint_lifecycle` | ERROR |
+| `test_workload_balancing_across_solvers` | ERROR |
+| `test_seed_real_company_yaml` | ERROR |
+| `test_engine_escalates_to_ceo` | ERROR |
+| `test_sweep_routes_orphaned_tickets` | ERROR |
+| `test_api_rejects_without_key` | ERROR |
+| `test_api_rejects_wrong_key` | ERROR |
+| `test_api_accepts_correct_key` | ERROR |
+| `test_dashboard_stream_requires_auth` | ERROR |
+| `test_dashboard_overview_requires_auth` | ERROR |
+| `test_overseer_messages_requires_auth` | ERROR |
+| `test_overseer_reply_requires_auth` | ERROR |
+| `test_budget_check_unlimited` | ERROR |
+| `test_budget_check_and_consume` | ERROR |
+| `test_budget_reset` | ERROR |
+| `test_budget_status` | ERROR |
+| `test_budget_api_list` | ERROR |
+| `test_budget_api_reset` | ERROR |
+| `test_seed_populates_model_id` | ERROR |
+| `test_engine_budget_blocks_over_budget_persona` | ERROR |
+| `test_heartbeat_triggers_idle_personas` | ERROR |
+| `test_heartbeat_skips_when_no_work` | ERROR |
+| `test_heartbeat_skips_busy_personas` | ERROR |
+| `test_heartbeat_skips_over_budget` | ERROR |
 
-### test_engine_cov.py (41/41 passed) ok
+### test_engine_cov.py (10/41 passed) FAIL
 
 | Test | Status |
 |------|--------|
-| `test_handle_event_dispatches_ticket_created` | pass |
-| `test_handle_event_dispatches_ticket_review` | pass |
 | `test_handle_event_ignores_unknown_type` | pass |
 | `test_handle_event_catches_errors` | pass |
-| `test_set_persona_state` | pass |
-| `test_set_persona_state_missing_persona` | pass |
-| `test_set_ticket_in_progress` | pass |
-| `test_set_ticket_in_progress_skips_done_ticket` | pass |
-| `test_add_ticket_tokens` | pass |
-| `test_add_ticket_tokens_missing_ticket` | pass |
-| `test_trigger_review_falls_back_to_manager` | pass |
-| `test_trigger_review_ticket_not_found` | pass |
-| `test_trigger_review_excludes_worker_from_fallback` | pass |
-| `test_trigger_review_prefers_non_worker_creator` | pass |
-| `test_release_ticket_for_retry_flips_open` | pass |
-| `test_release_ticket_noop_when_already_started` | pass |
-| `test_try_claim_ticket_wins_first` | pass |
-| `test_find_hr_persona_id_by_role` | pass |
-| `test_find_hr_persona_id_none_when_missing` | pass |
-| `test_spawn_persona_task_full_run` | pass |
-| `test_spawn_persona_task_error_sets_blocked` | pass |
-| `test_on_persona_idle_claims_ticket` | pass |
-| `test_on_persona_idle_no_tickets` | pass |
-| `test_on_persona_idle_inactive_persona` | pass |
-| `test_hr_pickup_finds_hr_tagged_tickets` | pass |
-| `test_hr_pickup_ignores_non_hr_tickets` | pass |
-| `test_escalate_to_ceo` | pass |
-| `test_escalate_to_ceo_inactive` | pass |
 | `test_build_task_prompt` | pass |
 | `test_get_routing_target_no_creator` | pass |
 | `test_get_routing_target_by_id` | pass |
@@ -229,19 +239,44 @@
 | `test_get_routing_target_lead_default` | pass |
 | `test_find_lead_for_tags_exact_match` | pass |
 | `test_find_lead_for_tags_no_match` | pass |
-| `test_sweep_no_orphans` | pass |
-| `test_sweep_handles_route_error` | pass |
 | `test_start_event_listener` | pass |
-| `test_hr_tagged_ticket_routes_to_hr` | pass |
-| `test_route_ticket_skips_assigned` | pass |
-| `test_route_ticket_no_config` | pass |
+| `test_handle_event_dispatches_ticket_created` | ERROR |
+| `test_handle_event_dispatches_ticket_review` | ERROR |
+| `test_set_persona_state` | ERROR |
+| `test_set_persona_state_missing_persona` | ERROR |
+| `test_set_ticket_in_progress` | ERROR |
+| `test_set_ticket_in_progress_skips_done_ticket` | ERROR |
+| `test_add_ticket_tokens` | ERROR |
+| `test_add_ticket_tokens_missing_ticket` | ERROR |
+| `test_trigger_review_falls_back_to_manager` | ERROR |
+| `test_trigger_review_ticket_not_found` | ERROR |
+| `test_trigger_review_excludes_worker_from_fallback` | ERROR |
+| `test_trigger_review_prefers_non_worker_creator` | ERROR |
+| `test_release_ticket_for_retry_flips_open` | ERROR |
+| `test_release_ticket_noop_when_already_started` | ERROR |
+| `test_try_claim_ticket_wins_first` | ERROR |
+| `test_find_hr_persona_id_by_role` | ERROR |
+| `test_find_hr_persona_id_none_when_missing` | ERROR |
+| `test_spawn_persona_task_full_run` | ERROR |
+| `test_spawn_persona_task_error_sets_blocked` | ERROR |
+| `test_on_persona_idle_claims_ticket` | ERROR |
+| `test_on_persona_idle_no_tickets` | ERROR |
+| `test_on_persona_idle_inactive_persona` | ERROR |
+| `test_hr_pickup_finds_hr_tagged_tickets` | ERROR |
+| `test_hr_pickup_ignores_non_hr_tickets` | ERROR |
+| `test_escalate_to_ceo` | ERROR |
+| `test_escalate_to_ceo_inactive` | ERROR |
+| `test_sweep_no_orphans` | ERROR |
+| `test_sweep_handles_route_error` | ERROR |
+| `test_hr_tagged_ticket_routes_to_hr` | ERROR |
+| `test_route_ticket_skips_assigned` | ERROR |
+| `test_route_ticket_no_config` | ERROR |
 
-### test_main.py (14/14 passed) ok
+### test_main.py (13/14 passed) FAIL
 
 | Test | Status |
 |------|--------|
 | `test_app_exists` | pass |
-| `test_app_has_routers` | pass |
 | `test_main_function` | pass |
 | `test_main_function_with_reload` | pass |
 | `test_cors_default_origins` | pass |
@@ -254,29 +289,39 @@
 | `test_health_all_ok` | pass |
 | `test_health_db_error` | pass |
 | `test_health_redis_error` | pass |
+| `test_app_has_routers` | FAIL |
 
-### test_memory.py (9/9 passed) ok
+### test_memory.py (3/9 passed) FAIL
 
 | Test | Status |
 |------|--------|
-| `test_store_and_recall` | pass |
-| `test_recall_filters` | pass |
-| `test_build_memory_context` | pass |
-| `test_build_memory_context_empty` | pass |
-| `test_compaction` | pass |
-| `test_compaction_below_threshold` | pass |
 | `test_remember_tool` | pass |
 | `test_recall_tool` | pass |
 | `test_recall_tool_empty` | pass |
+| `test_store_and_recall` | ERROR |
+| `test_recall_filters` | ERROR |
+| `test_build_memory_context` | ERROR |
+| `test_build_memory_context_empty` | ERROR |
+| `test_compaction` | ERROR |
+| `test_compaction_below_threshold` | ERROR |
 
-### test_messaging.py (4/4 passed) ok
+### test_messaging.py (0/4 passed) FAIL
 
 | Test | Status |
 |------|--------|
-| `test_deliver_message_success` | pass |
+| `test_deliver_message_success` | ERROR |
+| `test_deliver_message_sender_not_found` | ERROR |
+| `test_deliver_message_recipient_not_found` | ERROR |
+| `test_deliver_message_recipient_not_active` | ERROR |
+
+### test_messaging2.py (4/4 passed) ok
+
+| Test | Status |
+|------|--------|
 | `test_deliver_message_sender_not_found` | pass |
 | `test_deliver_message_recipient_not_found` | pass |
-| `test_deliver_message_recipient_not_active` | pass |
+| `test_deliver_message_recipient_inactive` | pass |
+| `test_deliver_message_success` | pass |
 
 ### test_messaging_tools.py (4/4 passed) ok
 
@@ -296,16 +341,16 @@
 | `test_persona_defaults` | pass |
 | `test_work_log_creation` | pass |
 
-### test_overseer.py (6/6 passed) ok
+### test_overseer.py (0/6 passed) FAIL
 
 | Test | Status |
 |------|--------|
-| `test_store_message` | pass |
-| `test_reply_to_message` | pass |
-| `test_reply_to_nonexistent_message` | pass |
-| `test_list_messages_all` | pass |
-| `test_list_messages_pending_only` | pass |
-| `test_list_messages_empty` | pass |
+| `test_store_message` | ERROR |
+| `test_reply_to_message` | ERROR |
+| `test_reply_to_nonexistent_message` | ERROR |
+| `test_list_messages_all` | ERROR |
+| `test_list_messages_pending_only` | ERROR |
+| `test_list_messages_empty` | ERROR |
 
 ### test_personality.py (4/4 passed) ok
 
@@ -316,28 +361,22 @@
 | `test_no_personality_no_crash` | pass |
 | `test_persona_personality_overrides_role` | pass |
 
-### test_personas.py (7/7 passed) ok
+### test_personas.py (0/7 passed) FAIL
 
 | Test | Status |
 |------|--------|
-| `test_hire_persona` | pass |
-| `test_hire_duplicate_persona` | pass |
-| `test_fire_persona` | pass |
-| `test_fire_nonexistent_persona` | pass |
-| `test_list_personas` | pass |
-| `test_list_personas_excludes_fired` | pass |
-| `test_list_personas_filter_by_reports_to` | pass |
+| `test_hire_persona` | ERROR |
+| `test_hire_duplicate_persona` | ERROR |
+| `test_fire_persona` | ERROR |
+| `test_fire_nonexistent_persona` | ERROR |
+| `test_list_personas` | ERROR |
+| `test_list_personas_excludes_fired` | ERROR |
+| `test_list_personas_filter_by_reports_to` | ERROR |
 
-### test_personas_cov.py (15/15 passed) ok
+### test_personas_cov.py (7/15 passed) FAIL
 
 | Test | Status |
 |------|--------|
-| `test_hire_invalid_persona_id` | pass |
-| `test_hire_with_all_optional_fields` | pass |
-| `test_hire_loads_role_config` | pass |
-| `test_hire_post_sweep` | pass |
-| `test_hire_post_sweep_failure` | pass |
-| `test_fire_persona_reassigns_orphaned_tickets` | pass |
 | `test_append_to_company_yaml` | pass |
 | `test_append_to_company_yaml_no_file` | pass |
 | `test_append_to_company_yaml_already_exists` | pass |
@@ -345,27 +384,19 @@
 | `test_hire_persona_sync_wrapper` | pass |
 | `test_fire_persona_sync_wrapper` | pass |
 | `test_list_personas_sync_wrapper` | pass |
-| `test_list_personas_includes_workload_and_budget` | pass |
-| `test_list_personas_zero_workload_for_idle_persona` | pass |
+| `test_hire_invalid_persona_id` | ERROR |
+| `test_hire_with_all_optional_fields` | ERROR |
+| `test_hire_loads_role_config` | ERROR |
+| `test_hire_post_sweep` | ERROR |
+| `test_hire_post_sweep_failure` | ERROR |
+| `test_fire_persona_reassigns_orphaned_tickets` | ERROR |
+| `test_list_personas_includes_workload_and_budget` | ERROR |
+| `test_list_personas_zero_workload_for_idle_persona` | ERROR |
 
-### test_policy.py (21/21 passed) ok
+### test_policy.py (7/21 passed) FAIL
 
 | Test | Status |
 |------|--------|
-| `test_create_policy` | pass |
-| `test_approve_policy` | pass |
-| `test_approve_policy_requires_manager_or_lead` | pass |
-| `test_approve_non_draft_fails` | pass |
-| `test_reject_policy` | pass |
-| `test_reject_policy_requires_manager_or_lead` | pass |
-| `test_list_policies` | pass |
-| `test_get_policy_not_found` | pass |
-| `test_build_policy_context_wildcard` | pass |
-| `test_build_policy_context_role_match` | pass |
-| `test_build_policy_context_persona_id_match` | pass |
-| `test_build_policy_context_tag_skill_match` | pass |
-| `test_build_policy_context_draft_excluded` | pass |
-| `test_build_policy_context_empty` | pass |
 | `test_write_policy_tool` | pass |
 | `test_approve_policy_tool` | pass |
 | `test_approve_policy_tool_error` | pass |
@@ -373,6 +404,20 @@
 | `test_list_policies_tool_empty` | pass |
 | `test_read_policy_tool` | pass |
 | `test_read_policy_tool_not_found` | pass |
+| `test_create_policy` | ERROR |
+| `test_approve_policy` | ERROR |
+| `test_approve_policy_requires_manager_or_lead` | ERROR |
+| `test_approve_non_draft_fails` | ERROR |
+| `test_reject_policy` | ERROR |
+| `test_reject_policy_requires_manager_or_lead` | ERROR |
+| `test_list_policies` | ERROR |
+| `test_get_policy_not_found` | ERROR |
+| `test_build_policy_context_wildcard` | ERROR |
+| `test_build_policy_context_role_match` | ERROR |
+| `test_build_policy_context_persona_id_match` | ERROR |
+| `test_build_policy_context_tag_skill_match` | ERROR |
+| `test_build_policy_context_draft_excluded` | ERROR |
+| `test_build_policy_context_empty` | ERROR |
 
 ### test_runner.py (3/3 passed) ok
 
@@ -403,64 +448,74 @@
 | `test_run_persona_error_handling` | pass |
 | `test_run_persona_metrics_with_none_values` | pass |
 
-### test_scheduler_cov.py (15/15 passed) ok
+### test_scenarios.py (2/5 passed) FAIL
 
 | Test | Status |
 |------|--------|
-| `test_sweep_job_calls_sweep` | pass |
+| `test_scenario_personality_injection` | pass |
+| `test_scenario_trust_boundaries` | pass |
+| `test_scenario_landing_page` | ERROR |
+| `test_scenario_stale_escalation` | ERROR |
+| `test_scenario_sprint_with_memory` | ERROR |
+
+### test_scheduler_cov.py (7/15 passed) FAIL
+
+| Test | Status |
+|------|--------|
 | `test_sweep_job_handles_exception` | pass |
-| `test_ceo_kickoff_triggers_ceo` | pass |
-| `test_ceo_kickoff_skips_inactive_ceo` | pass |
-| `test_ceo_kickoff_skips_busy_ceo` | pass |
-| `test_ceo_kickoff_skips_over_budget` | pass |
 | `test_ceo_kickoff_handles_exception` | pass |
-| `test_ceo_kickoff_no_ceo` | pass |
-| `test_unblock_personas_job_recovers_blocked` | pass |
-| `test_unblock_personas_job_leaves_still_over_budget` | pass |
 | `test_unblock_personas_job_handles_exception` | pass |
 | `test_start_scheduler_adds_sweep_job` | pass |
 | `test_start_scheduler_with_ceo_kickoff` | pass |
 | `test_start_scheduler_with_heartbeat` | pass |
 | `test_start_scheduler_with_all_jobs` | pass |
+| `test_sweep_job_calls_sweep` | ERROR |
+| `test_ceo_kickoff_triggers_ceo` | ERROR |
+| `test_ceo_kickoff_skips_inactive_ceo` | ERROR |
+| `test_ceo_kickoff_skips_busy_ceo` | ERROR |
+| `test_ceo_kickoff_skips_over_budget` | ERROR |
+| `test_ceo_kickoff_no_ceo` | ERROR |
+| `test_unblock_personas_job_recovers_blocked` | ERROR |
+| `test_unblock_personas_job_leaves_still_over_budget` | ERROR |
 
-### test_sprint1.py (23/23 passed) ok
-
-| Test | Status |
-|------|--------|
-| `test_ticket_has_budget_tokens_field` | pass |
-| `test_check_task_budget_requeues_exhausted` | pass |
-| `test_check_task_budget_allows_with_remaining` | pass |
-| `test_check_task_budget_unlimited_when_zero` | pass |
-| `test_check_task_budget_parks_after_loop_threshold` | pass |
-| `test_claim_next_claims_best_match` | pass |
-| `test_claim_next_returns_none_when_no_tickets` | pass |
-| `test_claim_next_returns_none_for_inactive_persona` | pass |
-| `test_claim_next_skips_assigned_tickets` | pass |
-| `test_claim_next_backs_off_for_lighter_peer` | pass |
-| `test_claim_next_proceeds_when_no_lighter_peer` | pass |
-| `test_claim_next_ignores_peer_with_lower_score` | pass |
-| `test_claim_next_fairness_respects_margin` | pass |
-| `test_capacity_ratio_no_solvers` | pass |
-| `test_capacity_ratio_balanced` | pass |
-| `test_capacity_ratio_counts_assigned_as_pending` | pass |
-| `test_hire_rejected_when_capacity_sufficient` | pass |
-| `test_hire_allowed_when_understaffed` | pass |
-| `test_hire_rejected_at_team_cap` | pass |
-| `test_expires_stale_tickets` | pass |
-| `test_ignores_recent_tickets` | pass |
-| `test_ignores_open_tickets` | pass |
-| `test_expires_stale_assigned_tickets` | pass |
-
-### test_sprint10.py (6/6 passed) ok
+### test_sprint1.py (0/23 passed) FAIL
 
 | Test | Status |
 |------|--------|
-| `test_get_soul` | pass |
-| `test_soul_history` | pass |
-| `test_soul_rollback_api` | pass |
+| `test_ticket_has_budget_tokens_field` | ERROR |
+| `test_check_task_budget_requeues_exhausted` | ERROR |
+| `test_check_task_budget_allows_with_remaining` | ERROR |
+| `test_check_task_budget_unlimited_when_zero` | ERROR |
+| `test_check_task_budget_parks_after_loop_threshold` | ERROR |
+| `test_claim_next_claims_best_match` | ERROR |
+| `test_claim_next_returns_none_when_no_tickets` | ERROR |
+| `test_claim_next_returns_none_for_inactive_persona` | ERROR |
+| `test_claim_next_skips_assigned_tickets` | ERROR |
+| `test_claim_next_backs_off_for_lighter_peer` | ERROR |
+| `test_claim_next_proceeds_when_no_lighter_peer` | ERROR |
+| `test_claim_next_ignores_peer_with_lower_score` | ERROR |
+| `test_claim_next_fairness_respects_margin` | ERROR |
+| `test_capacity_ratio_no_solvers` | ERROR |
+| `test_capacity_ratio_balanced` | ERROR |
+| `test_capacity_ratio_counts_assigned_as_pending` | ERROR |
+| `test_hire_rejected_when_capacity_sufficient` | ERROR |
+| `test_hire_allowed_when_understaffed` | ERROR |
+| `test_hire_rejected_at_team_cap` | ERROR |
+| `test_expires_stale_tickets` | ERROR |
+| `test_ignores_recent_tickets` | ERROR |
+| `test_ignores_open_tickets` | ERROR |
+| `test_expires_stale_assigned_tickets` | ERROR |
+
+### test_sprint10.py (3/6 passed) FAIL
+
+| Test | Status |
+|------|--------|
 | `test_entrypoint_script_exists` | pass |
 | `test_entrypoint_has_otel_toggle` | pass |
 | `test_dockerfile_copies_soul_and_sops` | pass |
+| `test_get_soul` | ERROR |
+| `test_soul_history` | ERROR |
+| `test_soul_rollback_api` | ERROR |
 
 ### test_sprint11_session.py (7/7 passed) ok
 
@@ -474,46 +529,46 @@
 | `test_save_handles_redis_error` | pass |
 | `test_returns_singleton` | pass |
 
-### test_sprint2_events.py (5/5 passed) ok
+### test_sprint2_events.py (1/5 passed) FAIL
 
 | Test | Status |
 |------|--------|
-| `test_handle_event_dispatches_persona_idle` | pass |
 | `test_handle_event_handles_persona_blocked` | pass |
-| `test_spawn_publishes_idle_on_success` | pass |
-| `test_spawn_publishes_blocked_on_error` | pass |
-| `test_spawn_publishes_blocked_on_budget_exhausted` | pass |
+| `test_handle_event_dispatches_persona_idle` | ERROR |
+| `test_spawn_publishes_idle_on_success` | ERROR |
+| `test_spawn_publishes_blocked_on_error` | ERROR |
+| `test_spawn_publishes_blocked_on_budget_exhausted` | ERROR |
 
-### test_sprint3_metrics.py (2/2 passed) ok
-
-| Test | Status |
-|------|--------|
-| `test_metrics_returns_per_persona_data` | pass |
-| `test_metrics_empty_when_no_work` | pass |
-
-### test_sprint4_concurrency.py (3/3 passed) ok
+### test_sprint3_metrics.py (0/2 passed) FAIL
 
 | Test | Status |
 |------|--------|
-| `test_concurrent_tasks_blocked_by_semaphore` | pass |
+| `test_metrics_returns_per_persona_data` | ERROR |
+| `test_metrics_empty_when_no_work` | ERROR |
+
+### test_sprint4_concurrency.py (2/3 passed) FAIL
+
+| Test | Status |
+|------|--------|
 | `test_get_persona_lock_creates_semaphore` | pass |
 | `test_get_persona_lock_custom_concurrency` | pass |
+| `test_concurrent_tasks_blocked_by_semaphore` | ERROR |
 
-### test_sprint5_persona_config.py (9/9 passed) ok
+### test_sprint5_persona_config.py (0/9 passed) FAIL
 
 | Test | Status |
 |------|--------|
-| `test_create_persona_config` | pass |
-| `test_company_snapshot_model` | pass |
-| `test_boot_seeds_from_yaml` | pass |
-| `test_boot_skips_if_already_seeded` | pass |
-| `test_snapshot_captures_state` | pass |
-| `test_snapshot_skips_empty_config` | pass |
-| `test_list_persona_configs` | pass |
-| `test_patch_persona_config` | pass |
-| `test_patch_nonexistent_config` | pass |
+| `test_create_persona_config` | ERROR |
+| `test_company_snapshot_model` | ERROR |
+| `test_boot_seeds_from_yaml` | ERROR |
+| `test_boot_skips_if_already_seeded` | ERROR |
+| `test_snapshot_captures_state` | ERROR |
+| `test_snapshot_skips_empty_config` | ERROR |
+| `test_list_persona_configs` | ERROR |
+| `test_patch_persona_config` | ERROR |
+| `test_patch_nonexistent_config` | ERROR |
 
-### test_sprint6_soul.py (13/13 passed) ok
+### test_sprint6_soul.py (9/13 passed) FAIL
 
 | Test | Status |
 |------|--------|
@@ -525,11 +580,11 @@
 | `test_rejects_missing_protected_rules` | pass |
 | `test_rejects_too_many_lines` | pass |
 | `test_accepts_valid_update` | pass |
-| `test_propose_valid_update` | pass |
-| `test_propose_invalid_rejected` | pass |
-| `test_rollback_to_version` | pass |
-| `test_rollback_nonexistent_version` | pass |
 | `test_soul_injected_into_prompt` | pass |
+| `test_propose_valid_update` | ERROR |
+| `test_propose_invalid_rejected` | ERROR |
+| `test_rollback_to_version` | ERROR |
+| `test_rollback_nonexistent_version` | ERROR |
 
 ### test_sprint7.py (7/7 passed) ok
 
@@ -543,7 +598,7 @@
 | `test_read_soul_accessible_to_all` | pass |
 | `test_tools_registered` | pass |
 
-### test_sprint8_strands.py (7/7 passed) ok
+### test_sprint8_strands.py (6/7 passed) FAIL
 
 | Test | Status |
 |------|--------|
@@ -552,15 +607,13 @@
 | `test_external_denied` | pass |
 | `test_solver_allowed` | pass |
 | `test_on_tool_use_records_calls` | pass |
-| `test_on_invocation_complete_consumes_budget` | pass |
 | `test_summary` | pass |
+| `test_on_invocation_complete_consumes_budget` | ERROR |
 
-### test_sprint9.py (9/9 passed) ok
+### test_sprint9.py (7/9 passed) FAIL
 
 | Test | Status |
 |------|--------|
-| `test_allows_hire_when_understaffed` | pass |
-| `test_blocks_hire_when_sufficient` | pass |
 | `test_ignores_non_hire_tools` | pass |
 | `test_sop_files_exist` | pass |
 | `test_load_sop_for_review_tag` | pass |
@@ -568,8 +621,10 @@
 | `test_load_sop_for_unknown_tag` | pass |
 | `test_load_sop_deduplicates` | pass |
 | `test_load_sop_multiple_tags` | pass |
+| `test_allows_hire_when_understaffed` | ERROR |
+| `test_blocks_hire_when_sufficient` | ERROR |
 
-### test_taskboard.py (19/19 passed) ok
+### test_taskboard.py (12/19 passed) FAIL
 
 | Test | Status |
 |------|--------|
@@ -585,13 +640,13 @@
 | `test_fuzzy_score_ticket_tag_inside_solver_tag` | pass |
 | `test_fuzzy_score_no_overlap` | pass |
 | `test_fuzzy_score_handles_empty_tags` | pass |
-| `test_create_ticket_db` | pass |
-| `test_list_tickets_by_status` | pass |
-| `test_list_tickets_with_tag_filter` | pass |
-| `test_update_ticket_status` | pass |
-| `test_update_ticket_not_found` | pass |
-| `test_update_ticket_result` | pass |
-| `test_update_ticket_review_publishes_event` | pass |
+| `test_create_ticket_db` | ERROR |
+| `test_list_tickets_by_status` | ERROR |
+| `test_list_tickets_with_tag_filter` | ERROR |
+| `test_update_ticket_status` | ERROR |
+| `test_update_ticket_not_found` | ERROR |
+| `test_update_ticket_result` | ERROR |
+| `test_update_ticket_review_publishes_event` | ERROR |
 
 ### test_telegram.py (12/12 passed) ok
 
@@ -610,7 +665,7 @@
 | `test_create_telegram_app_no_token` | pass |
 | `test_create_telegram_app_with_token` | pass |
 
-### test_tools.py (22/22 passed) ok
+### test_tools.py (20/22 passed) FAIL
 
 | Test | Status |
 |------|--------|
@@ -622,8 +677,6 @@
 | `test_read_file_missing_file` | pass |
 | `test_list_files_shows_directory_contents` | pass |
 | `test_list_files_with_pattern` | pass |
-| `test_grep_code_finds_pattern` | pass |
-| `test_grep_code_no_matches` | pass |
 | `test_create_ticket_tool_calls_sync` | pass |
 | `test_list_tickets_tool_formats_output` | pass |
 | `test_list_tickets_tool_empty` | pass |
@@ -636,6 +689,8 @@
 | `test_list_team_tool_empty` | pass |
 | `test_web_fetch_bad_url` | pass |
 | `test_web_fetch_strips_html` | pass |
+| `test_grep_code_finds_pattern` | FAIL |
+| `test_grep_code_no_matches` | FAIL |
 
 ### test_trust.py (12/12 passed) ok
 
@@ -691,3 +746,99 @@
 | `test_publish_file_requires_persona_id` | pass |
 | `test_publish_file_missing_source` | pass |
 | `test_default_workspace_still_works` | pass |
+
+## Coverage
+
+| Module | Stmts | Miss | Cover |
+|--------|-------|------|-------|
+| `opencompany/__init__.py` | 0 | 0 | 100% |
+| `opencompany/agents\__init__.py` | 0 | 0 | 100% |
+| `opencompany/agents\hooks.py` | 32 | 8 | 75% |
+| `opencompany/agents\prompts.py` | 101 | 10 | 90% |
+| `opencompany/agents\runner.py` | 140 | 22 | 84% |
+| `opencompany/agents\session.py` | 45 | 2 | 95% |
+| `opencompany/agents\tools\__init__.py` | 11 | 0 | 100% |
+| `opencompany/agents\tools\code.py` | 140 | 48 | 65% |
+| `opencompany/agents\tools\company.py` | 49 | 0 | 100% |
+| `opencompany/agents\tools\memory.py` | 21 | 0 | 100% |
+| `opencompany/agents\tools\messaging.py` | 9 | 0 | 100% |
+| `opencompany/agents\tools\overseer.py` | 10 | 0 | 100% |
+| `opencompany/agents\tools\policy.py` | 40 | 0 | 100% |
+| `opencompany/agents\tools\soul.py` | 16 | 11 | 31%! |
+| `opencompany/agents\tools\subagent.py` | 30 | 22 | 26%! |
+| `opencompany/agents\tools\tickets.py` | 26 | 0 | 100% |
+| `opencompany/agents\tools\web.py` | 79 | 10 | 87% |
+| `opencompany/company\__init__.py` | 0 | 0 | 100% |
+| `opencompany/company\budget.py` | 77 | 64 | 16%! |
+| `opencompany/company\config.py` | 154 | 89 | 42%! |
+| `opencompany/company\engine.py` | 359 | 259 | 27%! |
+| `opencompany/company\memory.py` | 57 | 48 | 15%! |
+| `opencompany/company\messaging.py` | 19 | 0 | 100% |
+| `opencompany/company\overseer.py` | 32 | 23 | 28%! |
+| `opencompany/company\personas.py` | 143 | 97 | 32%! |
+| `opencompany/company\policy.py` | 84 | 69 | 17%! |
+| `opencompany/company\scheduler.py` | 162 | 103 | 36%! |
+| `opencompany/company\seed.py` | 80 | 69 | 13%! |
+| `opencompany/company\soul.py` | 63 | 25 | 60% |
+| `opencompany/company\taskboard.py` | 141 | 86 | 39%! |
+| `opencompany/company\trust.py` | 27 | 0 | 100% |
+| `opencompany/events\__init__.py` | 0 | 0 | 100% |
+| `opencompany/events\bus.py` | 121 | 24 | 80% |
+| `opencompany/gateway\__init__.py` | 0 | 0 | 100% |
+| `opencompany/gateway\api.py` | 305 | 175 | 42%! |
+| `opencompany/gateway\channels\__init__.py` | 0 | 0 | 100% |
+| `opencompany/gateway\channels\telegram.py` | 60 | 7 | 88% |
+| `opencompany/gateway\dashboard.py` | 80 | 49 | 38%! |
+| `opencompany/main.py` | 171 | 50 | 70% |
+| `opencompany/models\__init__.py` | 5 | 0 | 100% |
+| `opencompany/models\base.py` | 3 | 0 | 100% |
+| `opencompany/models\db.py` | 110 | 0 | 100% |
+| `opencompany/models\engine.py` | 15 | 2 | 86% |
+| `opencompany/utils.py` | 12 | 0 | 100% |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\__init__.py` | 0 | 0 | 100% |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\conftest.py` | 198 | 151 | 23%! |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_budget_cov.py` | 173 | 145 | 16%! |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_bus.py` | 22 | 0 | 100% |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_bus_cov.py` | 118 | 13 | 88% |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_company_tools_cov.py` | 53 | 0 | 100% |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_config.py` | 76 | 9 | 88% |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_config_roles.py` | 23 | 4 | 82% |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_dashboard.py` | 54 | 42 | 22%! |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_dashboard_cov.py` | 176 | 134 | 23%! |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_dashboard_e2e.py` | 221 | 188 | 14%! |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_e2e.py` | 661 | 565 | 14%! |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_engine_cov.py` | 449 | 351 | 21%! |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_main.py` | 152 | 1 | 99% |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_memory.py` | 110 | 80 | 27%! |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_messaging.py` | 42 | 33 | 21%! |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_messaging2.py` | 62 | 2 | 96% |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_messaging_tools.py` | 26 | 0 | 100% |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_models.py` | 19 | 0 | 100% |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_overseer.py` | 59 | 48 | 18%! |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_personality.py` | 39 | 0 | 100% |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_personas.py` | 69 | 55 | 20%! |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_personas_cov.py` | 137 | 82 | 40%! |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_policy.py` | 200 | 134 | 33%! |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_runner.py` | 35 | 0 | 100% |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_runner_cov.py` | 178 | 0 | 100% |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_scenarios.py` | 153 | 104 | 32%! |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_scheduler_cov.py` | 142 | 83 | 41%! |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_sprint1.py` | 286 | 250 | 12%! |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_sprint10.py` | 86 | 61 | 29%! |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_sprint11_session.py` | 65 | 0 | 100% |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_sprint2_events.py` | 72 | 59 | 18%! |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_sprint3_metrics.py` | 57 | 50 | 12%! |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_sprint4_concurrency.py` | 48 | 23 | 52% |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_sprint5_persona_config.py` | 149 | 130 | 12%! |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_sprint6_soul.py` | 106 | 34 | 67% |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_sprint7.py` | 38 | 0 | 100% |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_sprint8_strands.py` | 44 | 10 | 77% |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_sprint9.py` | 60 | 21 | 65% |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_taskboard.py` | 152 | 92 | 39%! |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_telegram.py` | 115 | 0 | 100% |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_tools.py` | 162 | 0 | 100% |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_trust.py` | 61 | 0 | 100% |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_utils.py` | 53 | 1 | 98% |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_web_tools.py` | 104 | 0 | 100% |
+| `D:\Stepan\Urfu\Projects\Lab2Tests\opencompany\opencompany\tests\test_workspaces.py` | 52 | 0 | 100% |
+| **TOTAL** | **8386** | **4327** | **48%** |
